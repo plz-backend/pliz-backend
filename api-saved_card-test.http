@@ -1,0 +1,732 @@
+###############################################
+# PLIZ APP - SAVED CARDS API TEST SUITE
+# Payment Methods | Saved Cards | Card Payments
+###############################################
+
+@baseUrl = http://localhost:3000
+@donorEmail = impactliveconsult@gmail.com
+@testPassword = Test123!@#
+
+###############################################
+# SECTION 0: SETUP - LOGIN
+###############################################
+
+### 0.1 Login Donor
+# @name loginDonor
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{donorEmail}}",
+  "password": "{{testPassword}}"
+}
+
+# ✅ Expected: 200 OK
+# Copy accessToken for subsequent requests
+
+###
+
+###############################################
+# SECTION 1: GET SAVED CARDS
+###############################################
+
+### 1.1 Get Saved Cards - First Time (Empty)
+GET {{baseUrl}}/api/payment-methods/cards
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+
+# ✅ Expected: 200 OK
+# {
+#   "success": true,
+#   "data": {
+#     "cards": []
+#   }
+# }
+
+###
+
+### 1.2 Get Saved Cards - No Auth (SHOULD FAIL)
+GET {{baseUrl}}/api/payment-methods/cards
+
+# ❌ Expected: 401 Unauthorized
+
+###
+
+###############################################
+# SECTION 2: FIRST DONATION - AUTO-SAVE CARD
+###############################################
+
+### 2.1 Initialize First Donation (New Card)
+# @name firstDonation
+POST {{baseUrl}}/api/donations/initialize
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "begId": "1d3379b8-5727-46c4-b170-4f83afd71ff8",
+  "amount": 5000,
+  "isAnonymous": false,
+  "paymentMethod": "card"
+}
+
+# ✅ Expected: 201 Created
+# {
+#   "success": true,
+#   "data": {
+#     "donation_id": "...",
+#     "payment_url": "https://checkout.paystack.com/...",
+#     "payment_reference": "DON-..."
+#   }
+# }
+# → Open payment_url in browser
+# → Use Paystack test card: 4084 0840 8408 4081
+# → CVV: 408, Expiry: 12/30, PIN: 0000, OTP: 123456
+
+###
+
+### 2.2 Wait for Webhook to Process
+# After completing payment on Paystack, wait 5 seconds for webhook
+
+###
+
+### 2.3 Get Saved Cards - Should Have Card Now
+# @name getSavedCards
+GET {{baseUrl}}/api/payment-methods/cards
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+
+# ✅ Expected: 200 OK
+# {
+#   "success": true,
+#   "data": {
+#     "cards": [
+#       {
+#         "id": "card-uuid",
+#         "cardType": "visa",
+#         "last4": "4081",
+#         "expMonth": "12",
+#         "expYear": "2030",
+#         "bank": "TEST BANK",
+#         "isDefault": true,
+#         "createdAt": "2026-02-18T..."
+#       }
+#     ]
+#   }
+# }
+
+###
+
+###############################################
+# SECTION 3: DONATE WITH SAVED CARD
+###############################################
+
+### 3.1 Donate with Saved Card (Instant Payment)
+# @name savedCardDonation
+POST {{baseUrl}}/api/donations/initialize
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "begId": "1d3379b8-5727-46c4-b170-4f83afd71ff8",
+  "amount": 3000,
+  "isAnonymous": false,
+  "paymentMethod": "card",
+  "savedCardId": "PASTE_CARD_ID_FROM_SECTION_2.3"
+}
+
+# ✅ Expected: 201 Created
+# {
+#   "success": true,
+#   "message": "Payment processing with saved card",
+#   "data": {
+#     "donation_id": "...",
+#     "amount": 3000,
+#     "payment_reference": "DON-...",
+#     "payment_method": "saved_card",
+#     "status": "success"
+#   }
+# }
+# ❌ No payment_url - instant charge!
+
+###
+
+### 3.2 Donate with Saved Card - Invalid Card ID (SHOULD FAIL)
+POST {{baseUrl}}/api/donations/initialize
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "begId": "1d3379b8-5727-46c4-b170-4f83afd71ff8",
+  "amount": 2000,
+  "isAnonymous": false,
+  "paymentMethod": "card",
+  "savedCardId": "invalid-card-id"
+}
+
+# ❌ Expected: 500 - "No saved card found" or "Failed to charge saved card"
+
+###
+
+### 3.3 Donate with Saved Card - Another User's Card (SHOULD FAIL)
+POST {{baseUrl}}/api/donations/initialize
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "begId": "1d3379b8-5727-46c4-b170-4f83afd71ff8",
+  "amount": 2000,
+  "isAnonymous": false,
+  "paymentMethod": "card",
+  "savedCardId": "another-users-card-id"
+}
+
+# ❌ Expected: 500 - "No saved card found"
+
+###
+
+### 3.4 Donate with Saved Card - No Auth (SHOULD FAIL)
+POST {{baseUrl}}/api/donations/initialize
+Content-Type: application/json
+
+{
+  "begId": "1d3379b8-5727-46c4-b170-4f83afd71ff8",
+  "amount": 2000,
+  "isAnonymous": false,
+  "paymentMethod": "card",
+  "savedCardId": "any-card-id"
+}
+
+# ❌ Expected: 401 Unauthorized
+
+###
+
+###############################################
+# SECTION 4: MAKE SECOND DONATION - ADD ANOTHER CARD
+###############################################
+
+### 4.1 Initialize Donation with New Card
+# @name secondDonation
+POST {{baseUrl}}/api/donations/initialize
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "begId": "1d3379b8-5727-46c4-b170-4f83afd71ff8",
+  "amount": 4000,
+  "isAnonymous": false,
+  "paymentMethod": "card"
+}
+
+# → Complete payment with DIFFERENT test card: 5060 6666 6666 6666 4963
+
+###
+
+### 4.2 Get Saved Cards - Should Have 2 Cards Now
+GET {{baseUrl}}/api/payment-methods/cards
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+
+# ✅ Expected: 200 OK with 2 cards
+# {
+#   "data": {
+#     "cards": [
+#       {
+#         "id": "card-1-uuid",
+#         "last4": "4081",
+#         "isDefault": true
+#       },
+#       {
+#         "id": "card-2-uuid",
+#         "last4": "4963",
+#         "isDefault": false
+#       }
+#     ]
+#   }
+# }
+
+###
+
+###############################################
+# SECTION 5: SET DEFAULT CARD
+###############################################
+
+### 5.1 Set Second Card as Default
+PATCH {{baseUrl}}/api/payment-methods/cards/PASTE_CARD_2_ID/default
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+
+# ✅ Expected: 200 OK
+# {
+#   "success": true,
+#   "message": "Default card updated successfully"
+# }
+
+###
+
+### 5.2 Verify Default Changed
+GET {{baseUrl}}/api/payment-methods/cards
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+
+# ✅ Expected: Card 2 has isDefault: true
+
+###
+
+### 5.3 Set Default - Invalid Card ID (SHOULD FAIL)
+PATCH {{baseUrl}}/api/payment-methods/cards/invalid-id/default
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+
+# ❌ Expected: 500 - "Card not found"
+
+###
+
+### 5.4 Set Default - Another User's Card (SHOULD FAIL)
+PATCH {{baseUrl}}/api/payment-methods/cards/another-users-card/default
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+
+# ❌ Expected: 500 - "Card not found"
+
+###
+
+### 5.5 Set Default - No Auth (SHOULD FAIL)
+PATCH {{baseUrl}}/api/payment-methods/cards/any-card-id/default
+
+# ❌ Expected: 401 Unauthorized
+
+###
+
+###############################################
+# SECTION 6: DELETE SAVED CARD
+###############################################
+
+### 6.1 Delete Non-Default Card
+DELETE {{baseUrl}}/api/payment-methods/cards/PASTE_CARD_1_ID
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+
+# ✅ Expected: 200 OK
+# {
+#   "success": true,
+#   "message": "Card deleted successfully"
+# }
+
+###
+
+### 6.2 Verify Card Deleted
+GET {{baseUrl}}/api/payment-methods/cards
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+
+# ✅ Expected: Only 1 card remaining
+
+###
+
+### 6.3 Delete Default Card (Should Auto-Set Another as Default)
+DELETE {{baseUrl}}/api/payment-methods/cards/PASTE_CARD_2_ID
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+
+# ✅ Expected: 200 OK
+# If other cards exist, one becomes default automatically
+
+###
+
+### 6.4 Delete Card - Invalid ID (SHOULD FAIL)
+DELETE {{baseUrl}}/api/payment-methods/cards/invalid-id
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+
+# ❌ Expected: 500 - "Card not found"
+
+###
+
+### 6.5 Delete Card - Already Deleted (SHOULD FAIL)
+DELETE {{baseUrl}}/api/payment-methods/cards/PASTE_DELETED_CARD_ID
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+
+# ❌ Expected: 500 - "Card not found"
+
+###
+
+### 6.6 Delete Card - No Auth (SHOULD FAIL)
+DELETE {{baseUrl}}/api/payment-methods/cards/any-card-id
+
+# ❌ Expected: 401 Unauthorized
+
+###
+
+###############################################
+# SECTION 7: EDGE CASES
+###############################################
+
+### 7.1 Donate with Saved Card When No Cards Saved (SHOULD FAIL)
+# First, delete all cards, then try to donate
+
+POST {{baseUrl}}/api/donations/initialize
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "begId": "1d3379b8-5727-46c4-b170-4f83afd71ff8",
+  "amount": 1000,
+  "isAnonymous": false,
+  "paymentMethod": "card",
+  "savedCardId": "non-existent-card"
+}
+
+# ❌ Expected: 500 - "No saved card found"
+
+###
+
+### 7.2 Donate Without savedCardId (Regular Flow)
+POST {{baseUrl}}/api/donations/initialize
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "begId": "1d3379b8-5727-46c4-b170-4f83afd71ff8",
+  "amount": 2000,
+  "isAnonymous": false,
+  "paymentMethod": "card"
+}
+
+# ✅ Expected: 201 Created with payment_url (regular checkout flow)
+
+###
+
+### 7.3 Saved Card Payment - Amount Below Minimum (SHOULD FAIL)
+POST {{baseUrl}}/api/donations/initialize
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "begId": "1d3379b8-5727-46c4-b170-4f83afd71ff8",
+  "amount": 50,
+  "isAnonymous": false,
+  "paymentMethod": "card",
+  "savedCardId": "PASTE_CARD_ID"
+}
+
+# ❌ Expected: 400 - "Minimum donation is ₦100"
+
+###
+
+### 7.4 Saved Card Payment - Amount Above Maximum (SHOULD FAIL)
+POST {{baseUrl}}/api/donations/initialize
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "begId": "1d3379b8-5727-46c4-b170-4f83afd71ff8",
+  "amount": 150000,
+  "isAnonymous": false,
+  "paymentMethod": "card",
+  "savedCardId": "PASTE_CARD_ID"
+}
+
+# ❌ Expected: 400 - "Maximum donation is ₦100,000"
+
+###
+
+### 7.5 Saved Card Payment - To Fully Funded Beg (SHOULD FAIL)
+POST {{baseUrl}}/api/donations/initialize
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "begId": "PASTE_FUNDED_BEG_ID",
+  "amount": 1000,
+  "isAnonymous": false,
+  "paymentMethod": "card",
+  "savedCardId": "PASTE_CARD_ID"
+}
+
+# ❌ Expected: 400 - "This beg is already fully funded"
+
+###
+
+### 7.6 Saved Card Payment - To Expired Beg (SHOULD FAIL)
+POST {{baseUrl}}/api/donations/initialize
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "begId": "PASTE_EXPIRED_BEG_ID",
+  "amount": 1000,
+  "isAnonymous": false,
+  "paymentMethod": "card",
+  "savedCardId": "PASTE_CARD_ID"
+}
+
+# ❌ Expected: 400 - "This beg has expired"
+
+###
+
+### 7.7 Saved Card Payment - Self Donation (SHOULD FAIL)
+POST {{baseUrl}}/api/donations/initialize
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "begId": "PASTE_DONORS_OWN_BEG_ID",
+  "amount": 1000,
+  "isAnonymous": false,
+  "paymentMethod": "card",
+  "savedCardId": "PASTE_CARD_ID"
+}
+
+# ❌ Expected: 403 - "You cannot donate to your own request"
+
+###
+
+###############################################
+# SECTION 8: CARD AUTO-SAVE VERIFICATION
+###############################################
+
+### 8.1 Check Database - Verify Card Saved
+# SQL Query:
+# SELECT 
+#   sc.id,
+#   sc.user_id,
+#   sc.card_type,
+#   sc.last4,
+#   sc.is_default,
+#   u.email
+# FROM saved_cards sc
+# JOIN users u ON sc.user_id = u.id
+# WHERE u.email = 'impactliveconsult@gmail.com';
+
+# ✅ Expected: Shows saved cards
+
+###
+
+### 8.2 Check Card Authorization Codes Unique
+# SQL Query:
+# SELECT authorization_code, COUNT(*) 
+# FROM saved_cards 
+# GROUP BY authorization_code 
+# HAVING COUNT(*) > 1;
+
+# ✅ Expected: Empty result (no duplicates)
+
+###
+
+### 8.3 Check Only One Default Per User
+# SQL Query:
+# SELECT user_id, COUNT(*) as default_count
+# FROM saved_cards
+# WHERE is_default = true
+# GROUP BY user_id
+# HAVING COUNT(*) > 1;
+
+# ✅ Expected: Empty result (max 1 default per user)
+
+###
+
+###############################################
+# SECTION 9: PERFORMANCE & SPEED COMPARISON
+###############################################
+
+### 9.1 Regular Payment (Measure Time)
+# @name regularPayment
+POST {{baseUrl}}/api/donations/initialize
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "begId": "1d3379b8-5727-46c4-b170-4f83afd71ff8",
+  "amount": 1000,
+  "isAnonymous": false,
+  "paymentMethod": "card"
+}
+
+# ✅ Note response time + user must complete checkout
+
+###
+
+### 9.2 Saved Card Payment (Measure Time)
+# @name savedCardPayment
+POST {{baseUrl}}/api/donations/initialize
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "begId": "1d3379b8-5727-46c4-b170-4f83afd71ff8",
+  "amount": 1000,
+  "isAnonymous": false,
+  "paymentMethod": "card",
+  "savedCardId": "PASTE_CARD_ID"
+}
+
+# ✅ Note response time - should be INSTANT (no checkout)
+
+###
+
+###############################################
+# SECTION 10: COMPLETE USER JOURNEY
+###############################################
+
+### Step 1: New User - No Saved Cards
+GET {{baseUrl}}/api/payment-methods/cards
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+
+# ✅ Empty array
+
+###
+
+### Step 2: First Donation - Enter Card Details
+POST {{baseUrl}}/api/donations/initialize
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "begId": "1d3379b8-5727-46c4-b170-4f83afd71ff8",
+  "amount": 5000,
+  "isAnonymous": false,
+  "paymentMethod": "card"
+}
+
+# → Complete Paystack checkout
+
+###
+
+### Step 3: Check Card Auto-Saved
+GET {{baseUrl}}/api/payment-methods/cards
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+
+# ✅ 1 card saved
+
+###
+
+### Step 4: Second Donation - Use Saved Card
+POST {{baseUrl}}/api/donations/initialize
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "begId": "1d3379b8-5727-46c4-b170-4f83afd71ff8",
+  "amount": 3000,
+  "isAnonymous": false,
+  "paymentMethod": "card",
+  "savedCardId": "CARD_ID_FROM_STEP_3"
+}
+
+# ✅ Instant payment!
+
+###
+
+### Step 5: Add New Card
+POST {{baseUrl}}/api/donations/initialize
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "begId": "1d3379b8-5727-46c4-b170-4f83afd71ff8",
+  "amount": 2000,
+  "isAnonymous": false,
+  "paymentMethod": "card"
+}
+
+# → Use different card on checkout
+
+###
+
+### Step 6: Manage Cards
+GET {{baseUrl}}/api/payment-methods/cards
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+
+# ✅ 2 cards
+
+###
+
+### Step 7: Change Default Card
+PATCH {{baseUrl}}/api/payment-methods/cards/CARD_2_ID/default
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+
+###
+
+### Step 8: Delete Old Card
+DELETE {{baseUrl}}/api/payment-methods/cards/CARD_1_ID
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+
+###
+
+### Step 9: Continue Using Saved Card
+POST {{baseUrl}}/api/donations/initialize
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "begId": "1d3379b8-5727-46c4-b170-4f83afd71ff8",
+  "amount": 1500,
+  "isAnonymous": false,
+  "paymentMethod": "card",
+  "savedCardId": "CARD_2_ID"
+}
+
+###
+
+###############################################
+# TEST SUMMARY
+###############################################
+
+# Total Tests: 45+
+#
+# ✅ Get Saved Cards (2 tests)
+#   - Empty list for new user
+#   - Authentication required
+#
+# ✅ Auto-Save Card (3 tests)
+#   - After first payment
+#   - Card details stored correctly
+#   - Set as default if first card
+#
+# ✅ Donate with Saved Card (4 tests)
+#   - Successful instant payment
+#   - Invalid card ID
+#   - Another user's card
+#   - No authentication
+#
+# ✅ Multiple Cards (2 tests)
+#   - Add second card
+#   - List all cards
+#
+# ✅ Set Default Card (5 tests)
+#   - Change default
+#   - Verify change
+#   - Invalid card
+#   - Another user's card
+#   - No authentication
+#
+# ✅ Delete Card (6 tests)
+#   - Delete non-default
+#   - Delete default (auto-set new default)
+#   - Invalid card
+#   - Already deleted
+#   - Another user's card
+#   - No authentication
+#
+# ✅ Edge Cases (7 tests)
+#   - No cards saved
+#   - Regular flow fallback
+#   - Amount validation
+#   - Funded/expired begs
+#   - Self-donation block
+#
+# ✅ Database Verification (3 queries)
+#   - Cards saved correctly
+#   - No duplicate authorizations
+#   - One default per user
+#
+# ✅ Performance (2 tests)
+#   - Regular vs saved card speed
+#
+# ✅ Complete Journey (9 steps)
+#   - Full user flow from first donation to managing cards
+
+
+# -- Check saved cards
+# SELECT * FROM saved_cards WHERE user_id = 'USER_ID';
+
+# -- Check donation payment methods
+# SELECT payment_method, COUNT(*) 
+# FROM donations 
+# WHERE donor_id = 'USER_ID' 
+# GROUP BY payment_method;
+
+# -- Check card uniqueness
+# SELECT authorization_code, COUNT(*) 
+# FROM saved_cards 
+# GROUP BY authorization_code 
+# HAVING COUNT(*) > 1;

@@ -1,0 +1,1 @@
+// the model for beg is in the prisma schema, so we can use the generated types from prisma

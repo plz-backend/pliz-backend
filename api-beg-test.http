@@ -1,0 +1,1064 @@
+###############################################
+# PLIZ APP - BEG FEATURE COMPLETE TEST SUITE
+# Categories | Trust Tiers | Cooldowns | Validation | Approval Workflow
+###############################################
+
+@baseUrl = http://localhost:3000
+@user1Email = impactliveconsult@gmail.com
+@user1Password = Test123!@#
+@user2Email = chigoziegodwin93@gmail.com
+@user2Password = Test123!@#
+@user3Email = godwinchigozie93@gmail.com
+@user3Password = Test123!@#
+@adminEmail = admin@pliz.app
+@adminPassword = Admin123!@#
+
+###############################################
+# SECTION 0: SETUP - LOGIN USERS
+###############################################
+
+### 0.1 Login User 1 (Donor/Requester)
+# @name loginUser1
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{user1Email}}",
+  "password": "{{user1Password}}"
+}
+
+# ✅ Expected: 200 OK
+# Save: user1Token = response.data.accessToken
+# Save: user1Id = response.data.user.id
+
+###
+
+### 0.2 Login User 2 (Requester)
+# @name loginUser2
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{user2Email}}",
+  "password": "{{user2Password}}"
+}
+
+# ✅ Expected: 200 OK
+
+###
+
+### 0.3 Login User 3 (Requester)
+# @name loginUser3
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{user3Email}}",
+  "password": "{{user3Password}}"
+}
+
+# ✅ Expected: 200 OK
+
+###
+
+### 0.4 Login Admin
+# @name loginAdmin
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{adminEmail}}",
+  "password": "{{adminPassword}}"
+}
+
+# ✅ Expected: 200 OK
+
+###
+
+###############################################
+# SECTION 1: CATEGORY VALIDATION
+###############################################
+
+### 1.1 Get Available Categories
+GET {{baseUrl}}/api/begs/categories
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+
+# ✅ Expected: 200 OK with categories list
+# Should return: food, transport, rent, medical, education, emergency, other
+
+###
+
+### 1.2 Create Beg - Valid Category
+# @name createBegValidCategory
+POST {{baseUrl}}/api/begs
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "category": "food",
+  "title": "Need groceries",
+  "description": "Lost my job last week and need help feeding my family",
+  "amountRequested": 5000
+}
+
+# ✅ Expected: 201 Created
+# {
+#   "success": true,
+#   "message": "Beg created successfully and pending approval.",
+#   "data": {
+#     "beg": {
+#       "id": "...",
+#       "title": "Need groceries",
+#       "description": "Lost my job last week and need help feeding my family",
+#       "approved": false,
+#       "status": "active"
+#     }
+#   }
+# }
+
+###
+
+### 1.3 Create Beg - Invalid Category (SHOULD FAIL)
+POST {{baseUrl}}/api/begs
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "category": "invalid_category",
+  "title": "Test",
+  "amountRequested": 1000
+}
+
+# ❌ Expected: 400 - "Invalid category"
+
+###
+
+### 1.4 Create Beg - Missing Category (SHOULD FAIL)
+POST {{baseUrl}}/api/begs
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "title": "Test",
+  "amountRequested": 1000
+}
+
+# ❌ Expected: 400 - "Category is required"
+
+###
+
+###############################################
+# SECTION 2: TITLE VALIDATION
+###############################################
+
+### 2.1 Create Beg - Valid Title (25 chars)
+POST {{baseUrl}}/api/begs
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "category": "medical",
+  "title": "Need hospital bill help",
+  "amountRequested": 10000
+}
+
+# ✅ Expected: 201 Created (exactly 25 characters including spaces)
+
+###
+
+### 2.2 Create Beg - Title Too Long (SHOULD FAIL)
+POST {{baseUrl}}/api/begs
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "category": "medical",
+  "title": "I need urgent help with my medical bills",
+  "amountRequested": 10000
+}
+
+# ❌ Expected: 400 - "Title must be 25 characters or less"
+
+###
+
+### 2.3 Create Beg - Empty Title (SHOULD FAIL)
+POST {{baseUrl}}/api/begs
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "category": "food",
+  "title": "   ",
+  "amountRequested": 2000
+}
+
+# ❌ Expected: 400 - "Title cannot be empty"
+
+###
+
+### 2.4 Create Beg - Missing Title (SHOULD FAIL)
+POST {{baseUrl}}/api/begs
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "category": "food",
+  "amountRequested": 2000
+}
+
+# ❌ Expected: 400 - "Title is required"
+
+###
+
+### 2.5 Create Beg - Title with Special Characters
+POST {{baseUrl}}/api/begs
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "category": "rent",
+  "title": "Rent due - need help!",
+  "amountRequested": 8000
+}
+
+# ✅ Expected: 201 Created (special chars allowed)
+
+###
+
+###############################################
+# SECTION 3: DESCRIPTION VALIDATION
+###############################################
+
+### 3.1 Create Beg - Valid Description (30 words)
+POST {{baseUrl}}/api/begs
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "category": "medical",
+  "title": "Surgery needed",
+  "description": "I need emergency surgery to remove my appendix. The hospital requires payment upfront and I don't have the money right now. Any help would be greatly appreciated.",
+  "amountRequested": 15000
+}
+
+# ✅ Expected: 201 Created (exactly 30 words)
+
+###
+
+### 3.2 Create Beg - Description Too Long (SHOULD FAIL)
+POST {{baseUrl}}/api/begs
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "category": "medical",
+  "title": "Hospital bill",
+  "description": "I had an emergency surgery last week at the general hospital and the doctors are saying that I need to pay before they discharge me but I don't have any money right now because I just lost my job",
+  "amountRequested": 15000
+}
+
+# ❌ Expected: 400 - "Description must be 30 words or less (currently 40 words)"
+
+###
+
+### 3.3 Create Beg - No Description (Valid)
+POST {{baseUrl}}/api/begs
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "category": "transport",
+  "title": "Need bus fare",
+  "amountRequested": 500
+}
+
+# ✅ Expected: 201 Created (description is optional)
+
+###
+
+### 3.4 Create Beg - Empty Description (Valid)
+POST {{baseUrl}}/api/begs
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "category": "food",
+  "title": "Groceries needed",
+  "description": "",
+  "amountRequested": 3000
+}
+
+# ✅ Expected: 201 Created (empty description is ok)
+
+###
+
+### 3.5 Create Beg - Description Exactly 500 Characters
+POST {{baseUrl}}/api/begs
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "category": "emergency",
+  "title": "Emergency help",
+  "description": "This is a test description that is exactly five hundred characters long to test the maximum character limit validation. We need to ensure that the system properly handles descriptions that reach the maximum allowed length. This helps us verify that our validation logic is working correctly and that users can utilize the full character allowance when providing details about their request for assistance. The description should be accepted without any issues or errors from the backend validation system.",
+  "amountRequested": 20000
+}
+
+# ✅ Expected: 201 Created (exactly 500 chars)
+
+###
+
+### 3.6 Create Beg - Description Over 500 Characters (SHOULD FAIL)
+POST {{baseUrl}}/api/begs
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "category": "emergency",
+  "title": "Emergency help",
+  "description": "This is a test description that exceeds five hundred characters to test the maximum character limit validation. We need to ensure that the system properly rejects descriptions that are too long. This helps us verify that our validation logic is working correctly and prevents users from submitting overly long descriptions. The description should be rejected with an appropriate error message from the backend validation system. Adding more text here to exceed the limit and trigger the validation error that we expect to see in the response.",
+  "amountRequested": 20000
+}
+
+# ❌ Expected: 400 - "Description is too long (max 500 characters)"
+
+###
+
+###############################################
+# SECTION 4: AMOUNT VALIDATION
+###############################################
+
+### 4.1 Create Beg - Valid Amount
+POST {{baseUrl}}/api/begs
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "category": "food",
+  "title": "Need groceries",
+  "amountRequested": 5000
+}
+
+# ✅ Expected: 201 Created
+
+###
+
+### 4.2 Create Beg - Amount Below Minimum (SHOULD FAIL)
+POST {{baseUrl}}/api/begs
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "category": "food",
+  "title": "Small help needed",
+  "amountRequested": 50
+}
+
+# ❌ Expected: 400 - "Minimum amount is ₦100"
+
+###
+
+### 4.3 Create Beg - Missing Amount (SHOULD FAIL)
+POST {{baseUrl}}/api/begs
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "category": "food",
+  "title": "Help needed"
+}
+
+# ❌ Expected: 400 - "Amount requested is required"
+
+###
+
+### 4.4 Create Beg - Invalid Amount Type (SHOULD FAIL)
+POST {{baseUrl}}/api/begs
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "category": "food",
+  "title": "Help needed",
+  "amountRequested": "five thousand"
+}
+
+# ❌ Expected: 400 - "Amount must be a number"
+
+###
+
+### 4.5 Create Beg - Amount Exceeds Tier Limit (SHOULD FAIL)
+# Tier 1 max = ₦10,000
+POST {{baseUrl}}/api/begs
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "category": "rent",
+  "title": "Need rent help",
+  "amountRequested": 50000
+}
+
+# ❌ Expected: 400 - "Amount exceeds your tier limit of ₦10,000"
+
+###
+
+###############################################
+# SECTION 5: COOLDOWN SYSTEM
+###############################################
+
+### 5.1 Create First Beg
+# @name firstBeg
+POST {{baseUrl}}/api/begs
+Authorization: Bearer {{loginUser2.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "category": "food",
+  "title": "First request",
+  "description": "Testing cooldown system",
+  "amountRequested": 3000
+}
+
+# ✅ Expected: 201 Created
+
+###
+
+### 5.2 Create Second Beg Immediately (SHOULD FAIL - Cooldown)
+POST {{baseUrl}}/api/begs
+Authorization: Bearer {{loginUser2.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "category": "food",
+  "title": "Second request",
+  "amountRequested": 2000
+}
+
+# ❌ Expected: 400 - Cooldown message
+# Tier 1: 48 hours cooldown
+
+###
+
+### 5.3 Check Cooldown Status
+GET {{baseUrl}}/api/begs/cooldown
+Authorization: Bearer {{loginUser2.response.body.data.accessToken}}
+
+# ✅ Expected: 200 OK with cooldown info
+# {
+#   "success": true,
+#   "data": {
+#     "is_on_cooldown": true,
+#     "next_request_allowed_at": "2026-03-12T...",
+#     "hours_remaining": 47
+#   }
+# }
+
+###
+
+### 5.4 Reset Cooldown (Dev Only)
+DELETE {{baseUrl}}/api/begs/dev/reset-cooldown
+Authorization: Bearer {{loginUser2.response.body.data.accessToken}}
+
+# ✅ Expected: 200 OK (only works in development)
+
+###
+
+###############################################
+# SECTION 6: APPROVAL WORKFLOW
+###############################################
+
+### 6.1 Create Beg for Approval
+# @name begForApproval
+POST {{baseUrl}}/api/begs
+Authorization: Bearer {{loginUser3.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "category": "medical",
+  "title": "Medical emergency",
+  "description": "Need urgent medical treatment and cannot afford the hospital bills right now",
+  "amountRequested": 12000
+}
+
+# ✅ Expected: 201 Created
+# {
+#   "data": {
+#     "beg": {
+#       "approved": false,
+#       "status": "active"
+#     }
+#   }
+# }
+
+###
+
+### 6.2 Check Unapproved Beg Not in Feed
+GET {{baseUrl}}/api/begs?page=1&limit=20
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+
+# ✅ Expected: 200 OK
+# Should NOT see unapproved begs in results
+
+###
+
+### 6.3 Admin Approves Beg
+PATCH {{baseUrl}}/api/admin/begs/BEG_ID_FROM_6.1/approve
+Authorization: Bearer {{loginAdmin.response.body.data.accessToken}}
+
+# ✅ Expected: 200 OK
+# {
+#   "success": true,
+#   "message": "Beg approved successfully",
+#   "data": {
+#     "approved": true,
+#     "approved_at": "2026-03-10T..."
+#   }
+# }
+
+###
+
+### 6.4 Check Approved Beg Now in Feed
+GET {{baseUrl}}/api/begs?page=1&limit=20
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+
+# ✅ Expected: 200 OK
+# Should NOW see approved beg in results
+
+###
+
+### 6.5 Get Beg by ID - Check Approval Fields
+GET {{baseUrl}}/api/begs/BEG_ID_FROM_6.1
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+
+# ✅ Expected: 200 OK
+# {
+#   "data": {
+#     "beg": {
+#       "id": "...",
+#       "title": "Medical emergency",
+#       "description": "Need urgent medical treatment...",
+#       "approved": true,
+#       "approved_at": "2026-03-10T...",
+#       "rejected_at": null,
+#       "rejection_reason": null
+#     }
+#   }
+# }
+
+###
+
+###############################################
+# SECTION 7: REJECTION WORKFLOW
+###############################################
+
+### 7.1 Create Beg for Rejection
+# @name begForRejection
+POST {{baseUrl}}/api/begs
+Authorization: Bearer {{loginUser3.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "category": "other",
+  "title": "Generic request",
+  "description": "Just testing the rejection workflow here",
+  "amountRequested": 5000
+}
+
+# ✅ Expected: 201 Created
+
+###
+
+### 7.2 Admin Rejects Beg
+PATCH {{baseUrl}}/api/admin/begs/BEG_ID_FROM_7.1/reject
+Authorization: Bearer {{loginAdmin.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "reason": "Does not meet community guidelines"
+}
+
+# ✅ Expected: 200 OK
+# {
+#   "success": true,
+#   "message": "Beg rejected successfully",
+#   "data": {
+#     "status": "rejected",
+#     "rejection_reason": "Does not meet community guidelines",
+#     "rejected_at": "2026-03-10T..."
+#   }
+# }
+
+###
+
+### 7.3 Get Rejected Beg - Check Status
+GET {{baseUrl}}/api/begs/BEG_ID_FROM_7.1
+Authorization: Bearer {{loginUser3.response.body.data.accessToken}}
+
+# ✅ Expected: 200 OK
+# {
+#   "data": {
+#     "beg": {
+#       "status": "rejected",
+#       "approved": false,
+#       "rejected_at": "2026-03-10T...",
+#       "rejection_reason": "Does not meet community guidelines"
+#     }
+#   }
+# }
+
+###
+
+### 7.4 Rejected Beg Not in Public Feed
+GET {{baseUrl}}/api/begs
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+
+# ✅ Expected: 200 OK
+# Should NOT see rejected begs
+
+###
+
+###############################################
+# SECTION 8: GET BEGS (FEED)
+###############################################
+
+### 8.1 Get All Active Begs
+GET {{baseUrl}}/api/begs
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+
+# ✅ Expected: 200 OK
+# Should return only active, approved, non-expired begs
+
+###
+
+### 8.2 Get Begs - Paginated
+GET {{baseUrl}}/api/begs?page=1&limit=10
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+
+# ✅ Expected: 200 OK with max 10 begs
+
+###
+
+### 8.3 Get Begs - Filter by Category
+GET {{baseUrl}}/api/begs?category=food
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+
+# ✅ Expected: 200 OK with food category begs only
+
+###
+
+### 8.4 Get Begs - Filter by Category ID
+GET {{baseUrl}}/api/begs?categoryId=FOOD_CATEGORY_UUID
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+
+# ✅ Expected: 200 OK with food category begs only
+
+###
+
+### 8.5 Get Begs - Invalid Category Filter
+GET {{baseUrl}}/api/begs?category=invalid
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+
+# ✅ Expected: 200 OK with empty results
+
+###
+
+### 8.6 Get Beg by ID
+GET {{baseUrl}}/api/begs/VALID_BEG_ID
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+
+# ✅ Expected: 200 OK with full beg details
+
+###
+
+### 8.7 Get Non-Existent Beg
+GET {{baseUrl}}/api/begs/00000000-0000-0000-0000-000000000000
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+
+# ❌ Expected: 404 - Beg not found
+
+###
+
+###############################################
+# SECTION 9: MY BEGS (USER'S OWN BEGS)
+###############################################
+
+### 9.1 Get My Begs
+GET {{baseUrl}}/api/begs/my-begs
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+
+# ✅ Expected: 200 OK with user's begs (all statuses)
+
+###
+
+### 9.2 Get My Begs - Paginated
+GET {{baseUrl}}/api/begs/my-begs?page=1&limit=5
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+
+# ✅ Expected: 200 OK with max 5 begs
+
+###
+
+### 9.3 Get My Begs - Empty Result
+# (Use account with no begs)
+GET {{baseUrl}}/api/begs/my-begs
+Authorization: Bearer NEW_USER_TOKEN
+
+# ✅ Expected: 200 OK with empty array
+
+###
+
+###############################################
+# SECTION 10: CANCEL BEG
+###############################################
+
+### 10.1 Create Beg to Cancel
+# @name begToCancel
+POST {{baseUrl}}/api/begs
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "category": "food",
+  "title": "Will cancel this",
+  "amountRequested": 2000
+}
+
+# ✅ Expected: 201 Created
+
+###
+
+### 10.2 Cancel Own Beg
+DELETE {{baseUrl}}/api/begs/BEG_ID_FROM_10.1
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+
+# ✅ Expected: 200 OK
+# {
+#   "success": true,
+#   "message": "Beg cancelled successfully"
+# }
+
+###
+
+### 10.3 Cancel Someone Else's Beg (SHOULD FAIL)
+DELETE {{baseUrl}}/api/begs/OTHER_USERS_BEG_ID
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+
+# ❌ Expected: 403 - Unauthorized
+
+###
+
+### 10.4 Cancel Beg With Donations (SHOULD FAIL)
+DELETE {{baseUrl}}/api/begs/BEG_WITH_DONATIONS_ID
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+
+# ❌ Expected: 400 - "Cannot cancel beg that has received donations"
+
+###
+
+###############################################
+# SECTION 11: TRUST TIER INTEGRATION
+###############################################
+
+### 11.1 Get User Trust Info
+GET {{baseUrl}}/api/profile/trust-progress
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+
+# ✅ Expected: 200 OK
+# {
+#   "data": {
+#     "currentTier": 1,
+#     "capabilities": {
+#       "maxAmount": 10000,
+#       "requestsPerDay": 1,
+#       "cooldownHours": 48
+#     }
+#   }
+# }
+
+###
+
+### 11.2 Create Beg Within Tier Limit
+POST {{baseUrl}}/api/begs
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "category": "food",
+  "title": "Within tier limit",
+  "amountRequested": 9000
+}
+
+# ✅ Expected: 201 Created (Tier 1 max = ₦10,000)
+
+###
+
+### 11.3 Create Beg Exceeding Tier Limit (SHOULD FAIL)
+POST {{baseUrl}}/api/begs
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "category": "rent",
+  "title": "Exceeds tier limit",
+  "amountRequested": 25000
+}
+
+# ❌ Expected: 400 - "Amount exceeds your tier limit"
+
+###
+
+###############################################
+# SECTION 12: COMPLETE BEG LIFECYCLE
+###############################################
+
+### Step 1: Create Beg
+# @name lifecycleBeg
+POST {{baseUrl}}/api/begs
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "category": "medical",
+  "title": "Surgery needed ASAP",
+  "description": "Emergency appendectomy required and I need financial assistance for hospital payment",
+  "amountRequested": 15000
+}
+
+# ✅ Status: Created, pending approval
+
+###
+
+### Step 2: Check in My Begs
+GET {{baseUrl}}/api/begs/my-begs
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+
+# ✅ Should see the new beg
+
+###
+
+### Step 3: NOT in Public Feed (Unapproved)
+GET {{baseUrl}}/api/begs
+
+# ✅ Should NOT see it yet
+
+###
+
+### Step 4: Admin Approves
+PATCH {{baseUrl}}/api/admin/begs/BEG_ID_FROM_STEP_1/approve
+Authorization: Bearer {{loginAdmin.response.body.data.accessToken}}
+
+# ✅ Beg approved
+
+###
+
+### Step 5: NOW in Public Feed
+GET {{baseUrl}}/api/begs
+
+# ✅ Should NOW see it
+
+###
+
+### Step 6: Someone Donates
+POST {{baseUrl}}/api/donations/initialize
+Authorization: Bearer {{loginUser2.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "begId": "BEG_ID_FROM_STEP_1",
+  "amount": 15000,
+  "paymentMethod": "card"
+}
+
+# ✅ Donation initialized
+
+###
+
+### Step 7: Complete Payment (Use Paystack Test Card)
+# Visit payment_url from Step 6
+# Card: 4084 0840 8408 4081
+# CVV: 408, Expiry: 12/30, PIN: 0000, OTP: 123456
+
+###
+
+### Step 8: Check Beg Status After Full Funding
+GET {{baseUrl}}/api/begs/BEG_ID_FROM_STEP_1
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+
+# ✅ Expected: status = "funded"
+
+###
+
+### Step 9: Request Withdrawal
+POST {{baseUrl}}/api/withdrawals/request
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "begId": "BEG_ID_FROM_STEP_1"
+}
+
+# ✅ Withdrawal created and auto-processed
+
+###
+
+###############################################
+# SECTION 13: EDGE CASES
+###############################################
+
+### 13.1 Create Beg - Unicode Characters in Title
+POST {{baseUrl}}/api/begs
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "category": "food",
+  "title": "Help! 😢 Need food 🍞",
+  "amountRequested": 3000
+}
+
+# ✅ Expected: 201 Created (emojis allowed)
+
+###
+
+### 13.2 Create Beg - Very Large Amount
+POST {{baseUrl}}/api/begs
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "category": "emergency",
+  "title": "Major emergency",
+  "amountRequested": 1000000
+}
+
+# ❌ Expected: 400 - Exceeds tier limit
+
+###
+
+### 13.3 Create Beg - Negative Amount (SHOULD FAIL)
+POST {{baseUrl}}/api/begs
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "category": "food",
+  "title": "Test",
+  "amountRequested": -5000
+}
+
+# ❌ Expected: 400 - Invalid amount
+
+###
+
+### 13.4 Create Beg - Zero Amount (SHOULD FAIL)
+POST {{baseUrl}}/api/begs
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "category": "food",
+  "title": "Test",
+  "amountRequested": 0
+}
+
+# ❌ Expected: 400 - Minimum amount is ₦100
+
+###
+
+### 13.5 Create Beg - No Auth (SHOULD FAIL)
+POST {{baseUrl}}/api/begs
+Content-Type: application/json
+
+{
+  "category": "food",
+  "title": "No auth test",
+  "amountRequested": 1000
+}
+
+# ❌ Expected: 401 Unauthorized
+
+###
+
+### 13.6 Create Beg - SQL Injection Attempt
+POST {{baseUrl}}/api/begs
+Authorization: Bearer {{loginUser1.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "category": "food'; DROP TABLE begs;--",
+  "title": "'; DELETE FROM users;--",
+  "amountRequested": 1000
+}
+
+# ✅ Expected: 400 - Invalid category (handled safely)
+
+###
+
+###############################################
+# SECTION 14: DATABASE VERIFICATION
+###############################################
+
+# Run these SQL queries to verify data
+
+### 14.1 Check Beg Creation
+# SELECT id, title, description, approved, approved_at, rejected_at, 
+#        status, amount_requested, created_at
+# FROM begs
+# WHERE user_id = 'USER_ID'
+# ORDER BY created_at DESC;
+
+###
+
+### 14.2 Check Approval Status
+# SELECT id, title, approved, approved_at, approved_by
+# FROM begs
+# WHERE approved = true
+# ORDER BY approved_at DESC;
+
+###
+
+### 14.3 Check Rejected Begs
+# SELECT id, title, status, rejected_at, rejected_by, rejection_reason
+# FROM begs
+# WHERE status = 'rejected'
+# ORDER BY rejected_at DESC;
+
+###
+
+### 14.4 Check User Stats Update
+# SELECT user_id, requests_count, total_received, total_donated
+# FROM user_stats
+# WHERE user_id = 'USER_ID';
+
+###
+
+### 14.5 Check Category Usage
+# SELECT c.name, c.slug, COUNT(b.id) as beg_count
+# FROM categories c
+# LEFT JOIN begs b ON c.id = b.category_id
+# GROUP BY c.id, c.name, c.slug
+# ORDER BY beg_count DESC;
+
+###
+
+###############################################
+# TEST SUMMARY
+###############################################
+
+# Total Tests: 80+
+#
+# ✅ Category Validation (4 tests)
+# ✅ Title Validation (5 tests)
+# ✅ Description Validation (6 tests)
+# ✅ Amount Validation (5 tests)
+# ✅ Cooldown System (4 tests)
+# ✅ Approval Workflow (5 tests)
+# ✅ Rejection Workflow (4 tests)
+# ✅ Get Begs/Feed (7 tests)
+# ✅ My Begs (3 tests)
+# ✅ Cancel Beg (4 tests)
+# ✅ Trust Tier Integration (3 tests)
+# ✅ Complete Lifecycle (9 steps)
+# ✅ Edge Cases (6 tests)
+# ✅ Database Verification (5 queries)

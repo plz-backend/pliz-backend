@@ -15,7 +15,7 @@ declare global {
 
 /**
  * Authentication Middleware
- * Verifies JWT token and checks blacklist
+ * Verifies JWT token and attaches user to request
  */
 export const authenticate = async (
   req: Request,
@@ -42,7 +42,7 @@ export const authenticate = async (
 
     const token = authHeader.substring(7); // Remove 'Bearer ' prefix
 
-    // ========== CACHE: Check if token is blacklisted ==========
+    // Check if token is blacklisted
     const isBlacklisted = await CacheService.isTokenBlacklisted(token);
     
     if (isBlacklisted) {
@@ -84,6 +84,7 @@ export const authenticate = async (
     logger.debug('User authenticated successfully', {
       userId: decoded.userId,
       sessionId: decoded.sessionId,
+      role: decoded.role,
       path: req.path,
     });
 

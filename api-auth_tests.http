@@ -203,8 +203,7 @@ Content-Type: application/json
 
 ### 3.2 Verify User 1 Email
 # Replace TOKEN_HERE with actual token from email or Redis
-GET {{baseUrl}}/api/auth/verify-email?token=8f5bd9f6e28abc84d623e8e520699ecd8bdecbdddcb9c38c6da47a40ace4bbab
-
+GET {{baseUrl}}/api/auth/verify-email?token=1162c7d3d53d34f652c2da1b98fc9ee69ef9624c14627fdf1eee0a3eb7198635
 # ✅ Expected: 200 OK
 # {
 #   "success": true,
@@ -377,6 +376,64 @@ Content-Type: application/json
 
 ###
 
+### 1. Signup
+POST http://localhost:3000/api/auth/signup
+Content-Type: application/json
+
+{
+  "username": "testuser",
+  "email": "test@example.com",
+  "password": "Test123!@#",
+  "confirmPassword": "Test123!@#"
+}
+
+# ✅ Response includes: isProfileComplete: false
+
+### 2. Check Redis for token
+# redis-cli
+# KEYS email_token:*
+# GET email_token:test@example.com
+
+### 3. Verify email (use token from Redis)
+GET http://localhost:3000/api/auth/verify-email?token=YOUR_TOKEN_HERE
+
+### 4. Login
+POST http://localhost:3000/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "impactliveconsult@gmail.com",
+  "password": "Test123!@#"
+}
+
+
+# Save access token
+
+### 5. Complete Profile
+POST http://localhost:3000/api/auth/profile/complete
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJmYmU1ZTdiNS03OTU3LTQ4YTctOTBhZi00ZTFlYWIzMWRhYWMiLCJlbWFpbCI6ImNoaWdvemllZ29kd2luOTNAZ21haWwuY29tIiwidHlwZSI6ImFjY2VzcyIsInNlc3Npb25JZCI6IjE3OTY4MDU5LTA1NmUtNGI3OC05NDA4LWM5ODk3NzQzNDhhZCIsImlhdCI6MTc3MTM3MDEyNCwiZXhwIjoxNzcxMzcxMDI0fQ.XYJT_S8VGFyC1v_GieE0sAeUy_YfWdKLiAMCyz2b4RA
+Content-Type: application/json
+
+{
+  "firstName": "Test",
+  "middleName": "Middle",
+  "lastName": "User",
+  "phoneNumber": "+2348012345698",
+  "agreeToTerms": true
+}
+
+### 6. Now can create begs
+
+
+POST http://localhost:3000/api/begs
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJhZmFmNmI4Zi1hYWRjLTQxMmUtOTIxZC1lYmM0NGU1NWRmNzkiLCJlbWFpbCI6ImltcGFjdGxpdmVjb25zdWx0QGdtYWlsLmNvbSIsInR5cGUiOiJhY2Nlc3MiLCJzZXNzaW9uSWQiOiI2N2U2YjQ5ZC1iODEwLTRjZDUtYjkxNi03ZGUyMWQwYTI0YTciLCJpYXQiOjE3NzEzNTY1NDgsImV4cCI6MTc3MTM1NzQ0OH0.aRnaX0-J6ZC6mNYYME3pL1gqegTmRmU54OUJ4lKyuw4
+Content-Type: application/json
+
+{
+  "category": "food",
+  "title": "Need money for food",
+  "amountRequested": 5000
+}
 ###############################################
 # SECTION 5: USER LOGIN (MULTI-DEVICE)
 ###############################################

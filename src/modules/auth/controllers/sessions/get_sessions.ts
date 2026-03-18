@@ -1,6 +1,11 @@
+// import { Request, Response } from 'express';
+// import { SessionService } from '../../services/session.service';
+// import { ISessionResponse, IApiResponse } from '../../types/user.interface';
+// import logger from '../../../../config/logger';
+
 import { Request, Response } from 'express';
 import { SessionService } from '../../services/session.service';
-import { ISessionResponse, IApiResponse } from '../../types/user.interface';
+import { IApiResponse } from '../../types/user.interface';
 import logger from '../../../../config/logger';
 
 /**
@@ -24,9 +29,8 @@ export const getSessions = async (
   res: Response
 ): Promise<void> => {
   try {
-    // User ID and session ID are attached by auth middleware
-    const userId = (req as any).user?.userId;
-    const currentSessionId = (req as any).user?.sessionId;
+    const userId = req.user?.userId;
+    const currentSessionId = req.user?.sessionId;
 
     if (!userId) {
       const response: IApiResponse = {
@@ -39,32 +43,20 @@ export const getSessions = async (
 
     logger.info('Get sessions request', { userId });
 
-    // Get all active sessions for user (already transformed)
-    const sessions = await SessionService.getUserSessions(userId);
-
-    // Format sessions for response
-    const formattedSessions: ISessionResponse[] = sessions.map((session) => ({
-      id: session.id,
-      deviceInfo: session.deviceInfo,
-      ipAddress: session.ipAddress,
-      location: session.location,
-      active: session.active,
-      isCurrent: session.id === currentSessionId,
-      lastActive: session.lastActive,
-      createdAt: session.createdAt,
-      expiresAt: session.expiresAt,
-    }));
+    // This already returns ISessionResponse[] - no need for additional formatting
+    const sessions = await SessionService.getUserSessions(userId, currentSessionId);
 
     logger.info('Sessions retrieved', {
       userId,
-      sessionCount: formattedSessions.length,
+      sessionCount: sessions.length,
     });
 
-    const response: IApiResponse<{ sessions: ISessionResponse[] }> = {
+    const response: IApiResponse = {
       success: true,
       message: 'Sessions retrieved successfully',
-      data: { sessions: formattedSessions },
+      data: { sessions }, // Use directly
     };
+    
     sendResponse(res, 200, response);
   } catch (error: any) {
     logger.error('Get sessions error', {

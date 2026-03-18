@@ -4,7 +4,7 @@
 import prisma from '../../../config/database';
 import bcrypt from 'bcryptjs';
 import logger from '../../../config/logger';
-import { IUser } from '../types/user.interface';
+import { IUser, UserRole } from '../types/user.interface';
 import { SecurityConfig } from '../../../config/security';
 
 /**
@@ -37,22 +37,24 @@ export class UserService {
 
   /**
    * Create a new user
+   * UPDATED: Now supports optional role parameter (defaults to USER)
    */
   static async createUser(data: {
     username: string;
     email: string;
     password: string;
+    role?: UserRole;  // Added optional role parameter
   }): Promise<IUser> {
     try {
       const hashedPassword = await this.hashPassword(data.password);
-
+      
       const user = await prisma.user.create({
         data: {
-          username: data.username,
+          username: data.username.toLowerCase(),  // Normalize username
           email: data.email.toLowerCase(),
           passwordHash: hashedPassword,
+          role: data.role || UserRole.user,  // Default to USER if not provided
           isEmailVerified: false,
-        
         },
       });
 
@@ -60,6 +62,7 @@ export class UserService {
         userId: user.id,
         username: user.username,
         email: user.email,
+        role: user.role,  // Log the role
       });
 
       return user;
@@ -89,7 +92,7 @@ export class UserService {
   static async findByUsername(username: string): Promise<IUser | null> {
     try {
       return await prisma.user.findUnique({
-        where: { username },
+        where: { username: username.toLowerCase() },  // Normalize username
       });
     } catch (error) {
       logger.error('Failed to find user by username', { error, username });
@@ -121,7 +124,10 @@ export class UserService {
     try {
       return await prisma.user.findFirst({
         where: {
-          OR: [{ email: email.toLowerCase() }, { username }],
+          OR: [
+            { email: email.toLowerCase() },
+            { username: username.toLowerCase() },  // Normalize username
+          ],
         },
       });
     } catch (error) {
@@ -164,7 +170,7 @@ export class UserService {
   ): Promise<IUser | null> {
     try {
       const hashedPassword = await this.hashPassword(newPassword);
-
+      
       return await prisma.user.update({
         where: { id: userId },
         data: {
@@ -179,11 +185,83 @@ export class UserService {
   }
 
   /**
+   * Update user role (Admin/SuperAdmin only)
+   *  NEW METHOD: For changing user roles
+   */
+  static async updateUserRole(
+    userId: string,
+    newRole: UserRole
+  ): Promise<IUser | null> {
+    try {
+      const user = await prisma.user.update({
+        where: { id: userId },
+        data: {
+          role: newRole,
+          updatedAt: new Date(),
+        },
+      });
+
+      logger.info('User role updated successfully', {
+        userId,
+        newRole,
+      });
+
+      return user;
+    } catch (error) {
+      logger.error('Failed to update user role', { error, userId, newRole });
+      return null;
+    }
+  }
+
+  /**
+   * Get users by role
+   *  NEW METHOD: Find all users with a specific role
+   */
+  static async findByRole(role: UserRole): Promise<IUser[]> {
+    try {
+      return await prisma.user.findMany({
+        where: { role },
+        orderBy: { createdAt: 'desc' },
+      });
+    } catch (error) {
+      logger.error('Failed to find users by role', { error, role });
+      return [];
+    }
+  }
+
+  /**
+   * Check if user has role
+   * NEW METHOD: Utility to check user's role
+   */
+  static async hasRole(
+    userId: string,
+    requiredRole: UserRole | UserRole[]
+  ): Promise<boolean> {
+    try {
+      const user = await this.findById(userId);
+      
+      if (!user) {
+        return false;
+      }
+
+      if (Array.isArray(requiredRole)) {
+        return requiredRole.includes(user.role as UserRole);
+      }
+
+      return user.role === requiredRole;
+    } catch (error) {
+      logger.error('Failed to check user role', { error, userId });
+      return false;
+    }
+  }
+
+  /**
    * Delete user
    */
   static async deleteUser(userId: string): Promise<boolean> {
     try {
       await prisma.user.delete({ where: { id: userId } });
+      
       logger.info('User deleted successfully', { userId });
       return true;
     } catch (error) {

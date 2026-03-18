@@ -5,12 +5,16 @@ import { UserService } from '../../services/user.service';
 import { TokenService } from '../../services/tokenService';
 import { EmailService } from '../../services/emailService'; 
 import { CacheService } from '../../services/cacheService'; 
+import { TrustScoreService } from '../../../../../src/services/trust_score.service';
 import {
   IRegisterRequest,
   IUserResponse,
   IApiResponse,
+   UserRole, 
 } from '../../types/user.interface';
 import logger from '../../../../config/logger';
+
+
 
 /**
  * Helper to send response
@@ -24,13 +28,13 @@ const sendResponse = <T = any>(
 };
 
 /**
- * @route   POST /api/auth/signup
- * @desc    Register new user
+ * @route   POST /api/auth/register
+ * @desc    Register new user (Step 1: Creates 'user' role ONLY)
  * @access  Public
  */
 export const signup = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { username, email, password } = req.body as IRegisterRequest;
+    const { username, email, password, confirmPassword } = req.body as IRegisterRequest;
 
     logger.info('Registration attempt', {
       username,
@@ -38,7 +42,38 @@ export const signup = async (req: Request, res: Response): Promise<void> => {
       ip: req.ip,
     });
 
-    // Check if user already exists
+    // ============================================
+    // VALIDATION
+    // ============================================
+    if (!username || !email || !password || !confirmPassword) {
+      sendResponse(res, 400, {
+        success: false,
+        message: 'All fields are required',
+      });
+      return;
+    }
+
+    // Check password match
+    if (password !== confirmPassword) {
+      sendResponse(res, 400, {
+        success: false,
+        message: 'Passwords do not match',
+      });
+      return;
+    }
+
+    // Validate password strength
+    if (password.length < 8) {
+      sendResponse(res, 400, {
+        success: false,
+        message: 'Password must be at least 8 characters long',
+      });
+      return;
+    }
+
+    // ============================================
+    // CHECK IF USER EXISTS
+    // ============================================
     const existingUser = await UserService.findByEmailOrUsername(
       email,
       username
@@ -54,7 +89,7 @@ export const signup = async (req: Request, res: Response): Promise<void> => {
         return;
       }
 
-      if (existingUser.username === username) {
+      if (existingUser.username === username.toLowerCase()) {
         logger.warn('Registration failed: Username already exists', {
           username,
         });
@@ -66,28 +101,39 @@ export const signup = async (req: Request, res: Response): Promise<void> => {
       }
     }
 
-    // LOG: Email verification is disabled by default
     logger.info('Creating user with email verification disabled', {
       username,
       email,
+      role: UserRole.user,  // ✅ Log the role
       isEmailVerified: false,
     });
 
-    // Create user
+    // ============================================
+    // CREATE USER (HARDCODED 'user' ROLE)
+    // ============================================
     const user = await UserService.createUser({
       username,
       email,
       password,
+      role: UserRole.user  // ALWAYS 'user' for public registration
     });
 
-    // ========== EMAIL & CACHE: Generate and store email verification token ==========
+    // ============================================
+    // INITIALIZE TRUST & STATS
+    // ============================================
+    await TrustScoreService.initializeUserTrust(user.id);
+    logger.info('User trust initialized', { userId: user.id });
+
+    // ============================================
+    // EMAIL VERIFICATION
+    // ============================================
     const emailToken = TokenService.generateEmailToken();
 
     // Store token in Redis cache (expires in 24 hours)
     await CacheService.storeEmailToken(
       email.toLowerCase(),
       emailToken,
-      86400
+      86400  // 24 hours
     );
 
     logger.info('Email verification token generated', {
@@ -104,21 +150,30 @@ export const signup = async (req: Request, res: Response): Promise<void> => {
       userId: user.id,
       username,
       email,
+      role: user.role,  // ✅ Log the role
     });
 
-    // Prepare response
+    // ============================================
+    // PREPARE RESPONSE
+    // ============================================
     const userResponse: IUserResponse = {
       id: user.id,
       username: user.username,
       email: user.email,
+      role: user.role,  // ✅ Include role in response
       isEmailVerified: user.isEmailVerified,
+      emailVerifiedAt: user.emailVerifiedAt,
+      isProfileComplete: false,
+      isSuspended: user.isSuspended,
+      isUnderInvestigation: user.isUnderInvestigation,
       createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
     };
 
     sendResponse(res, 201, {
       success: true,
       message:
-        'Registration successful! Please check your email for verification link.',
+        'Registration successful! Please check your email to verify your account, then complete your profile.',
       data: {
         user: userResponse,
       },

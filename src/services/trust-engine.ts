@@ -1,10 +1,9 @@
 // src/services/trust-engine.ts
-// Trust Engine - MVP version (always allows, but wired for future)
+// Trust Engine - Fraud prevention and abuse detection
 
-import { PrismaClient } from '@prisma/client';
+import prisma from '../config/database';
 import { logSuspiciousActivity } from '../logger/pliz-events';
-
-const prisma = new PrismaClient();
+import logger from '../config/logger';
 
 interface DonationCheckParams {
   userId?: string;
@@ -23,37 +22,44 @@ export class TrustEngine {
   
   /**
    * Check if a donation is allowed
-   * MVP: Always returns true, but logs suspicious patterns
-   * Future: Add fraud detection, velocity checks, etc.
+   * Blocks: Self-donations, heavily flagged users
+   * Logs: Flagged users, high velocity, large amounts
    */
   async canDonate(params: DonationCheckParams): Promise<TrustCheckResult> {
     try {
-      // MVP: Basic checks only
-      
+      // ============================================
       // 1. Check if user is flagged
+      // ============================================
       if (params.userId) {
-        const stats = await prisma.user_stats.findUnique({
-          where: { user_id: params.userId },
+        const stats = await prisma.userStats.findUnique({
+          where: { userId: params.userId },
         });
         
-        if (stats && stats.abuse_flags > 0) {
+        if (stats && stats.abuseFlags > 0) {
           logSuspiciousActivity({
             userId: params.userId,
             activityType: 'donation_attempt_with_flags',
             details: {
-              abuseFlags: stats.abuse_flags,
+              abuseFlags: stats.abuseFlags,
               requestId: params.requestId,
               amount: params.amount,
             },
           });
           
-          // For MVP: Still allow, but log
-          // Future: Block if flags > threshold
+          // Block if flags >= 5
+          if (stats.abuseFlags >= 5) {
+            return {
+              allowed: false,
+              reason: 'Your account has been flagged. Please contact support.',
+            };
+          }
         }
       }
       
-      // 2. Check donation velocity (same IP, multiple donations)
-      if (params.ip) {
+      // ============================================
+      // 2. Check donation velocity (same IP)
+      // ============================================
+      if (params.ip && params.ip !== 'unknown') {
         const recentDonations = await this.getRecentDonationsByIp(params.ip);
         
         if (recentDonations.length > 10) {
@@ -64,21 +70,30 @@ export class TrustEngine {
               ip: params.ip,
               recentCount: recentDonations.length,
               amount: params.amount,
+              donationIds: recentDonations.map(d => d.id),
             },
           });
           
-          // For MVP: Still allow, but log
-          // Future: Require CAPTCHA or block
+          // Block if > 15 donations in 1 hour from same IP
+          if (recentDonations.length > 15) {
+            return {
+              allowed: false,
+              reason: 'Too many donations from this location. Please try again later.',
+            };
+          }
         }
       }
       
-      // 3. Check if donating to own request
+      // ============================================
+      // 3. Check self-donations (BLOCK)
+      // ============================================
       if (params.userId) {
-        const beg = await prisma.begs.findUnique({
+        const beg = await prisma.beg.findUnique({
           where: { id: params.requestId },
+          select: { userId: true },
         });
         
-        if (beg && beg.user_id === params.userId) {
+        if (beg && beg.userId === params.userId) {
           logSuspiciousActivity({
             userId: params.userId,
             activityType: 'self_donation_attempt',
@@ -88,7 +103,6 @@ export class TrustEngine {
             },
           });
           
-          // Block self-donations (this is MVP rule)
           return {
             allowed: false,
             reason: 'You cannot donate to your own request',
@@ -96,7 +110,9 @@ export class TrustEngine {
         }
       }
       
-      // 4. Check unusually large donations (potential card testing)
+      // ============================================
+      // 4. Check unusually large donations
+      // ============================================
       if (params.amount > 50000) {
         logSuspiciousActivity({
           userId: params.userId || 'anonymous',
@@ -104,43 +120,126 @@ export class TrustEngine {
           details: {
             amount: params.amount,
             requestId: params.requestId,
+            ip: params.ip,
           },
         });
         
-        // For MVP: Still allow, but log
-        // Future: Require verification for amounts > ₦50k
+        // Allow but log for future verification
+        // Future: Require phone verification for amounts > ₦50k
       }
       
-      // MVP: Allow all donations (except self-donations)
       return { allowed: true };
       
     } catch (error: any) {
-      console.error('Trust engine error:', error);
+      logger.error('Trust engine error', { 
+        error: error.message,
+        stack: error.stack,
+        params 
+      });
       
-      // On error, allow but log
+      // On error, fail-open (allow) but log
       return { allowed: true };
     }
   }
   
   /**
    * Get recent donations from IP (last 1 hour)
+   * ✅ Now fully functional with IP tracking
    */
   private async getRecentDonationsByIp(ip: string): Promise<any[]> {
-    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-    
-    // Note: You'd need to store IP with donations for this to work
-    // For MVP, you can skip this or implement later
-    
-    return [];
+    try {
+      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+      
+      const donations = await prisma.donation.findMany({
+        where: {
+          ipAddress: ip,
+          createdAt: {
+            gte: oneHourAgo,
+          },
+        },
+        select: {
+          id: true,
+          amount: true,
+          createdAt: true,
+          donorId: true,
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+      });
+      
+      logger.info('IP velocity check', {
+        ip,
+        recentDonationCount: donations.length,
+      });
+      
+      return donations;
+    } catch (error: any) {
+      logger.error('Failed to check IP velocity', {
+        error: error.message,
+        ip,
+      });
+      return [];
+    }
   }
   
   /**
-   * Future methods to implement:
-   * - canCreateBeg(userId, amount)
-   * - canRequestPayout(userId, begId)
-   * - canReportUser(reporterId, targetId)
-   * - etc.
+   * Check total amount donated from IP in last hour
    */
+  private async getTotalDonatedFromIp(ip: string): Promise<number> {
+    try {
+      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+      
+      const result = await prisma.donation.aggregate({
+        where: {
+          ipAddress: ip,
+          createdAt: {
+            gte: oneHourAgo,
+          },
+          status: 'success',
+        },
+        _sum: {
+          amount: true,
+        },
+      });
+      
+      return result._sum.amount ? Number(result._sum.amount) : 0;
+    } catch (error: any) {
+      logger.error('Failed to get total donated from IP', {
+        error: error.message,
+        ip,
+      });
+      return 0;
+    }
+  }
+  
+  /**
+   * Future expansion methods:
+   */
+  
+  /**
+   * Check if user can create a beg
+   */
+  async canCreateBeg(userId: string, amount: number): Promise<TrustCheckResult> {
+    // Future: Check cooldown, abuse flags, tier limits
+    return { allowed: true };
+  }
+  
+  /**
+   * Check if user can request payout
+   */
+  async canRequestPayout(userId: string, begId: string): Promise<TrustCheckResult> {
+    // Future: Verify identity, check fulfillment, anti-fraud
+    return { allowed: true };
+  }
+  
+  /**
+   * Check if user can report another user
+   */
+  async canReportUser(reporterId: string, targetId: string): Promise<TrustCheckResult> {
+    // Future: Prevent spam reporting
+    return { allowed: true };
+  }
 }
 
 export const trustEngine = new TrustEngine();

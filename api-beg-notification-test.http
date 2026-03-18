@@ -1,0 +1,1261 @@
+###############################################
+# PLIZ APP - COMPLETE DONATION TEST SUITE
+# Donations | Trust Engine | Messages | Notifications | Ranks
+###############################################
+
+@baseUrl = http://localhost:3000
+@donorEmail = impactliveconsult@gmail.com
+@recipientEmail = chigoziegodwin93@gmail.com
+@thirdUserEmail = godwinchigozie93@gmail.com
+@testPassword = Test123!@#
+
+###############################################
+# SECTION 0: SETUP - LOGIN ALL TEST USERS
+###############################################
+
+### 0.1 Login Donor (User 1)
+# @name loginDonor
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{donorEmail}}",
+  "password": "{{testPassword}}"
+}
+
+# ✅ Expected: 200 OK
+# {
+#   "success": true,
+#   "data": {
+#     "accessToken": "eyJ...",
+#     "user": { "id": "...", "email": "impactliveconsult@gmail.com" }
+#   }
+# }
+
+###
+
+### 0.2 Login Recipient (User 2)
+# @name loginRecipient
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{recipientEmail}}",
+  "password": "{{testPassword}}"
+}
+
+# ✅ Expected: 200 OK
+
+###
+
+### 0.3 Login Third User
+# @name loginThirdUser
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{thirdUserEmail}}",
+  "password": "{{testPassword}}"
+}
+
+# ✅ Expected: 200 OK
+
+###
+
+### 0.4 Get Active Begs (To Get Test IDs)
+# @name getActiveBegs
+GET {{baseUrl}}/api/begs?status=active&limit=5
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+
+# Copy a beg ID for testing
+
+###
+
+###############################################
+# SECTION 1: DONATION INITIALIZATION - SUCCESS CASES
+###############################################
+
+### 1.1 Initialize Donation - Success
+# @name initDonation
+POST {{baseUrl}}/api/donations/initialize
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "begId": "1d3379b8-5727-46c4-b170-4f83afd71ff8",
+  "amount": 5000,
+  "isAnonymous": false,
+  "paymentMethod": "card"
+}
+
+# ✅ Expected: 201 Created
+# {
+#   "success": true,
+#   "message": "Please complete payment",
+#   "data": {
+#     "donation_id": "...",
+#     "amount": 5000,
+#     "payment_reference": "DON-...",
+#     "payment_url": "https://checkout.paystack.com/...",
+#     "quick_amounts": [1000, 2000, 3000, 5000]
+#   }
+# }
+# → Open payment_url in browser to complete payment
+
+###
+
+### 1.2 Initialize Anonymous Donation
+POST {{baseUrl}}/api/donations/initialize
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "begId": "1d3379b8-5727-46c4-b170-4f83afd71ff8",
+  "amount": 3000,
+  "isAnonymous": true,
+  "paymentMethod": "card"
+}
+
+# ✅ Expected: 201 Created - donor will show as "Anonymous"
+
+###
+
+### 1.3 Initialize with Transfer Payment Method
+POST {{baseUrl}}/api/donations/initialize
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "begId": "1d3379b8-5727-46c4-b170-4f83afd71ff8",
+  "amount": 2000,
+  "isAnonymous": false,
+  "paymentMethod": "transfer"
+}
+
+# ✅ Expected: 201 Created
+
+###
+
+### 1.4 Initialize with USSD Payment Method
+POST {{baseUrl}}/api/donations/initialize
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "begId": "1d3379b8-5727-46c4-b170-4f83afd71ff8",
+  "amount": 1500,
+  "isAnonymous": false,
+  "paymentMethod": "ussd"
+}
+
+# ✅ Expected: 201 Created
+
+###
+
+### 1.5 Initialize - Amount Exceeds Remaining (Auto-adjusted)
+POST {{baseUrl}}/api/donations/initialize
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "begId": "1d3379b8-5727-46c4-b170-4f83afd71ff8",
+  "amount": 999999,
+  "isAnonymous": false,
+  "paymentMethod": "card"
+}
+
+# ✅ Expected: 201 Created - amount adjusted to remaining balance
+
+###
+
+###############################################
+# SECTION 2: DONATION INITIALIZATION - VALIDATION FAILURES
+###############################################
+
+### 2.1 Initialize - Missing begId
+POST {{baseUrl}}/api/donations/initialize
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "amount": 5000,
+  "isAnonymous": false,
+  "paymentMethod": "card"
+}
+
+# ❌ Expected: 400 - "begId is required"
+
+###
+
+### 2.2 Initialize - Invalid Amount Type
+POST {{baseUrl}}/api/donations/initialize
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "begId": "1d3379b8-5727-46c4-b170-4f83afd71ff8",
+  "amount": "five thousand",
+  "isAnonymous": false,
+  "paymentMethod": "card"
+}
+
+# ❌ Expected: 400 - "amount must be a number"
+
+###
+
+### 2.3 Initialize - Amount Below Minimum
+POST {{baseUrl}}/api/donations/initialize
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "begId": "1d3379b8-5727-46c4-b170-4f83afd71ff8",
+  "amount": 50,
+  "isAnonymous": false,
+  "paymentMethod": "card"
+}
+
+# ❌ Expected: 400 - "Minimum donation is ₦100"
+
+###
+
+### 2.4 Initialize - Amount Above Maximum
+POST {{baseUrl}}/api/donations/initialize
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "begId": "1d3379b8-5727-46c4-b170-4f83afd71ff8",
+  "amount": 150000,
+  "isAnonymous": false,
+  "paymentMethod": "card"
+}
+
+# ❌ Expected: 400 - "Maximum donation is ₦100,000"
+
+###
+
+### 2.5 Initialize - Invalid Payment Method
+POST {{baseUrl}}/api/donations/initialize
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "begId": "1d3379b8-5727-46c4-b170-4f83afd71ff8",
+  "amount": 5000,
+  "isAnonymous": false,
+  "paymentMethod": "bitcoin"
+}
+
+# ❌ Expected: 400 - "paymentMethod must be card, transfer or ussd"
+
+###
+
+### 2.6 Initialize - Beg Not Found
+POST {{baseUrl}}/api/donations/initialize
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "begId": "00000000-0000-0000-0000-000000000000",
+  "amount": 5000,
+  "isAnonymous": false,
+  "paymentMethod": "card"
+}
+
+# ❌ Expected: 404 - "Beg not found"
+
+###
+
+### 2.7 Initialize - No Authentication
+POST {{baseUrl}}/api/donations/initialize
+Content-Type: application/json
+
+{
+  "begId": "1d3379b8-5727-46c4-b170-4f83afd71ff8",
+  "amount": 5000,
+  "isAnonymous": false,
+  "paymentMethod": "card"
+}
+
+# ❌ Expected: 401 Unauthorized
+
+###
+
+###############################################
+# SECTION 3: TRUST ENGINE - SELF DONATION BLOCKING
+###############################################
+
+### 3.1 Self-Donation Attempt (BLOCKED)
+POST {{baseUrl}}/api/donations/initialize
+Authorization: Bearer {{loginRecipient.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "begId": "1d3379b8-5727-46c4-b170-4f83afd71ff8",
+  "amount": 5000,
+  "isAnonymous": false,
+  "paymentMethod": "card"
+}
+
+# ❌ Expected: 403 Forbidden
+# {
+#   "success": false,
+#   "message": "You cannot donate to your own request"
+# }
+
+# ✅ Check logs: Should see "self_donation_attempt"
+# grep "self_donation_attempt" logs/combined.log
+
+###
+
+### 3.2 Different User Donating (ALLOWED)
+POST {{baseUrl}}/api/donations/initialize
+Authorization: Bearer {{loginThirdUser.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "begId": "1d3379b8-5727-46c4-b170-4f83afd71ff8",
+  "amount": 2000,
+  "isAnonymous": false,
+  "paymentMethod": "card"
+}
+
+# ✅ Expected: 201 Created
+
+###
+
+###############################################
+# SECTION 4: TRUST ENGINE - LARGE DONATIONS
+###############################################
+
+### 4.1 Exactly ₦50,000 (Boundary - Not Logged)
+POST {{baseUrl}}/api/donations/initialize
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "begId": "1d3379b8-5727-46c4-b170-4f83afd71ff8",
+  "amount": 50000,
+  "isAnonymous": false,
+  "paymentMethod": "card"
+}
+
+# ✅ Expected: 201 Created
+# ✅ No "large_donation_attempt" log
+
+###
+
+### 4.2 Large Donation ₦75,000 (LOGGED BUT ALLOWED)
+POST {{baseUrl}}/api/donations/initialize
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "begId": "1d3379b8-5727-46c4-b170-4f83afd71ff8",
+  "amount": 75000,
+  "isAnonymous": false,
+  "paymentMethod": "card"
+}
+
+# ✅ Expected: 201 Created (MVP allows, but logs)
+# ✅ Check logs: Should see "large_donation_attempt"
+# grep "large_donation_attempt" logs/combined.log
+
+###
+
+### 4.3 Maximum Allowed ₦100,000
+POST {{baseUrl}}/api/donations/initialize
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "begId": "1d3379b8-5727-46c4-b170-4f83afd71ff8",
+  "amount": 100000,
+  "isAnonymous": false,
+  "paymentMethod": "card"
+}
+
+# ✅ Expected: 201 Created
+# ✅ Check logs: Should see "large_donation_attempt"
+
+###
+
+###############################################
+# SECTION 5: TRUST ENGINE - ABUSE FLAGS
+###############################################
+
+### 5.1 Setup - Flag User with 3 Abuse Flags
+# SQL: UPDATE user_stats SET abuse_flags = 3 WHERE user_id = 'DONOR_USER_ID';
+
+###
+
+### 5.2 User with 3 Abuse Flags (LOGGED BUT ALLOWED)
+POST {{baseUrl}}/api/donations/initialize
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "begId": "1d3379b8-5727-46c4-b170-4f83afd71ff8",
+  "amount": 2000,
+  "isAnonymous": false,
+  "paymentMethod": "card"
+}
+
+# ✅ Expected: 201 Created (flags < 5, so allowed)
+# ✅ Check logs: Should see "donation_attempt_with_flags"
+# grep "donation_attempt_with_flags" logs/combined.log
+
+###
+
+### 5.3 Setup - Increase Flags to 5 (Threshold)
+# SQL: UPDATE user_stats SET abuse_flags = 5 WHERE user_id = 'DONOR_USER_ID';
+
+###
+
+### 5.4 User with 5+ Abuse Flags (BLOCKED)
+POST {{baseUrl}}/api/donations/initialize
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "begId": "1d3379b8-5727-46c4-b170-4f83afd71ff8",
+  "amount": 2000,
+  "isAnonymous": false,
+  "paymentMethod": "card"
+}
+
+# ❌ Expected: 403 Forbidden
+# {
+#   "success": false,
+#   "message": "Your account has been flagged. Please contact support."
+# }
+
+###
+
+### 5.5 Cleanup - Reset Abuse Flags
+# SQL: UPDATE user_stats SET abuse_flags = 0 WHERE user_id = 'DONOR_USER_ID';
+
+###
+
+###############################################
+# SECTION 6: PAYMENT VERIFICATION
+###############################################
+
+### 6.1 Verify Payment Manually (After Paystack Payment)
+# @name verifyPayment
+POST {{baseUrl}}/api/donations/verify?reference={{initDonation.response.body.data.payment_reference}}
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+
+# ✅ Expected: 200 OK - Donation status updated to 'success'
+
+###
+
+### 6.2 Verify Payment - Invalid Reference
+POST {{baseUrl}}/api/donations/verify?reference=INVALID_REF
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+
+# ❌ Expected: 400 or 404 - Invalid reference
+
+###
+
+### 6.3 Verify Payment - Already Verified (Idempotent)
+POST {{baseUrl}}/api/donations/verify?reference={{initDonation.response.body.data.payment_reference}}
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+
+# ✅ Expected: 200 OK - Returns existing donation
+
+###
+
+###############################################
+# SECTION 7: GET DONATION DETAILS
+###############################################
+
+### 7.1 Get Donation by ID
+GET {{baseUrl}}/api/donations/{{initDonation.response.body.data.donation_id}}
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+
+# ✅ Expected: 200 OK
+# {
+#   "data": {
+#     "id": "...",
+#     "amount": 5000,
+#     "is_anonymous": false,
+#     "payment_method": "card",
+#     "status": "success",
+#     "beg": { "title": "...", "amount_requested": 10000 }
+#   }
+# }
+
+###
+
+### 7.2 Get Donation - Not Found
+GET {{baseUrl}}/api/donations/00000000-0000-0000-0000-000000000000
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+
+# ❌ Expected: 404 - "Donation not found"
+
+###
+
+### 7.3 Get Donation - No Auth
+GET {{baseUrl}}/api/donations/{{initDonation.response.body.data.donation_id}}
+
+# ❌ Expected: 401 Unauthorized
+
+###
+
+###############################################
+# SECTION 8: MY DONATION HISTORY (DONOR VIEW)
+###############################################
+
+### 8.1 Get My Donations
+GET {{baseUrl}}/api/donations/my-donations
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+
+# ✅ Expected: 200 OK
+# {
+#   "data": {
+#     "donations": [
+#       {
+#         "id": "...",
+#         "amount": 5000,
+#         "is_anonymous": false,
+#         "payment_method": "card",
+#         "created_at": "...",
+#         "request": {
+#           "title": "Need help",
+#           "status": "active",
+#           "is_funded": false
+#         },
+#         "gratitude": null
+#       }
+#     ],
+#     "total": 1,
+#     "pages": 1
+#   }
+# }
+
+###
+
+### 8.2 My Donations - With Pagination
+GET {{baseUrl}}/api/donations/my-donations?page=1&limit=5
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+
+###
+
+### 8.3 My Donations - Page 2
+GET {{baseUrl}}/api/donations/my-donations?page=2&limit=5
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+
+###
+
+### 8.4 My Donations - No Auth
+GET {{baseUrl}}/api/donations/my-donations
+
+# ❌ Expected: 401 Unauthorized
+
+###
+
+###############################################
+# SECTION 9: BEG DONATIONS (BEGGAR VIEW)
+###############################################
+
+### 9.1 Get All Donations for a Beg
+GET {{baseUrl}}/api/donations/beg/1d3379b8-5727-46c4-b170-4f83afd71ff8
+Authorization: Bearer {{loginRecipient.response.body.data.accessToken}}
+
+# ✅ Expected: 200 OK
+# {
+#   "data": {
+#     "donations": [
+#       {
+#         "id": "...",
+#         "amount": 5000,
+#         "is_anonymous": false,
+#         "donor_name": "John D",
+#         "created_at": "..."
+#       }
+#     ],
+#     "total": 1,
+#     "pages": 1
+#   }
+# }
+
+###
+
+### 9.2 Beg Donations - With Pagination
+GET {{baseUrl}}/api/donations/beg/1d3379b8-5727-46c4-b170-4f83afd71ff8?page=1&limit=5
+Authorization: Bearer {{loginRecipient.response.body.data.accessToken}}
+
+###
+
+### 9.3 Beg Donations - Anonymous Donor Shows as "Anonymous"
+GET {{baseUrl}}/api/donations/beg/1d3379b8-5727-46c4-b170-4f83afd71ff8
+Authorization: Bearer {{loginRecipient.response.body.data.accessToken}}
+
+# ✅ donor_name should be "Anonymous" for anonymous donations
+
+###
+
+### 9.4 Beg Not Found
+GET {{baseUrl}}/api/donations/beg/00000000-0000-0000-0000-000000000000
+Authorization: Bearer {{loginRecipient.response.body.data.accessToken}}
+
+# ✅ Expected: 200 OK with empty donations array
+
+###
+
+###############################################
+# SECTION 10: DONOR RANK & STATS
+###############################################
+
+### 10.1 Get My Donor Rank (After Donation)
+GET {{baseUrl}}/api/donations/my-rank
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+
+# ✅ Expected: 200 OK
+# {
+#   "data": {
+#     "rank": {
+#       "rank_name": "Tryer",
+#       "total_donated": 5000,
+#       "donation_count": 1,
+#       "streak_days": 1,
+#       "last_donated_at": "2026-02-17T..."
+#     }
+#   }
+# }
+
+###
+
+### 10.2 Get Rank - No Donations Yet
+GET {{baseUrl}}/api/donations/my-rank
+Authorization: Bearer {{loginRecipient.response.body.data.accessToken}}
+
+# ✅ Expected: 200 OK
+# {
+#   "data": {
+#     "rank_name": null,
+#     "total_donated": 0,
+#     "donation_count": 0,
+#     "streak_days": 0,
+#     "message": "Make your first donation to earn a rank!"
+#   }
+# }
+
+###
+
+### 10.3 Get Rank - No Auth
+GET {{baseUrl}}/api/donations/my-rank
+
+# ❌ Expected: 401 Unauthorized
+
+###
+
+###############################################
+# SECTION 11: GRATITUDE MESSAGES
+###############################################
+
+### 11.1 Recipient Sends Thank You
+# @name sendGratitude
+POST {{baseUrl}}/api/donations/{{initDonation.response.body.data.donation_id}}/gratitude
+Authorization: Bearer {{loginRecipient.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "content": "Thank you so much for your generous donation! This will really help me get the medical treatment I need. I'm truly grateful! 🙏",
+  "donorReplyAllowed": true
+}
+
+# ✅ Expected: 201 Created
+# {
+#   "success": true,
+#   "message": "Gratitude message sent successfully",
+#   "data": {
+#     "message": {
+#       "id": "...",
+#       "content": "Thank you so much!...",
+#       "donor_reply_allowed": true,
+#       "donor_replied": false,
+#       "expires_at": "..."
+#     }
+#   }
+# }
+
+###
+
+### 11.2 Send Gratitude - No Reply Allowed
+POST {{baseUrl}}/api/donations/{{initDonation.response.body.data.donation_id}}/gratitude
+Authorization: Bearer {{loginRecipient.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "content": "Thank you! No need to reply.",
+  "donorReplyAllowed": false
+}
+
+# ✅ Expected: 201 Created - expires_at should be null
+
+###
+
+### 11.3 Send Gratitude - Already Sent
+POST {{baseUrl}}/api/donations/{{initDonation.response.body.data.donation_id}}/gratitude
+Authorization: Bearer {{loginRecipient.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "content": "Another thank you",
+  "donorReplyAllowed": true
+}
+
+# ❌ Expected: 400 - "Gratitude message already sent"
+
+###
+
+### 11.4 Send Gratitude - Unauthorized (Donor Trying)
+POST {{baseUrl}}/api/donations/{{initDonation.response.body.data.donation_id}}/gratitude
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "content": "Donor trying to send gratitude",
+  "donorReplyAllowed": true
+}
+
+# ❌ Expected: 403 - "Unauthorized"
+
+###
+
+### 11.5 Send Gratitude - Empty Content
+POST {{baseUrl}}/api/donations/{{initDonation.response.body.data.donation_id}}/gratitude
+Authorization: Bearer {{loginRecipient.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "content": "",
+  "donorReplyAllowed": true
+}
+
+# ❌ Expected: 400 - "Message content is required"
+
+###
+
+### 11.6 Send Gratitude - Content Too Long (>500 chars)
+POST {{baseUrl}}/api/donations/{{initDonation.response.body.data.donation_id}}/gratitude
+Authorization: Bearer {{loginRecipient.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "content": "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.",
+  "donorReplyAllowed": true
+}
+
+# ❌ Expected: 400 - "Message cannot exceed 500 characters"
+
+###
+
+### 11.7 Send Gratitude - No Auth
+POST {{baseUrl}}/api/donations/{{initDonation.response.body.data.donation_id}}/gratitude
+Content-Type: application/json
+
+{
+  "content": "Thank you!",
+  "donorReplyAllowed": true
+}
+
+# ❌ Expected: 401 Unauthorized
+
+###
+
+###############################################
+# SECTION 12: DONOR REPLIES
+###############################################
+
+### 12.1 Donor Replies to Gratitude
+# @name replyGratitude
+POST {{baseUrl}}/api/donations/{{initDonation.response.body.data.donation_id}}/reply
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "reply": "You're welcome! Happy I could help. Stay strong 💪"
+}
+
+# ✅ Expected: 200 OK
+# {
+#   "success": true,
+#   "message": "Reply sent successfully",
+#   "data": {
+#     "message": {
+#       "donor_replied": true,
+#       "donor_reply": "You're welcome!...",
+#       "donor_replied_at": "..."
+#     }
+#   }
+# }
+
+###
+
+### 12.2 Reply - Already Replied
+POST {{baseUrl}}/api/donations/{{initDonation.response.body.data.donation_id}}/reply
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "reply": "Trying to reply again"
+}
+
+# ❌ Expected: 400 - "You have already replied to this message"
+
+###
+
+### 12.3 Reply - Unauthorized (Recipient Trying)
+POST {{baseUrl}}/api/donations/{{initDonation.response.body.data.donation_id}}/reply
+Authorization: Bearer {{loginRecipient.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "reply": "Recipient trying to reply as donor"
+}
+
+# ❌ Expected: 403 - "Unauthorized"
+
+###
+
+### 12.4 Reply - Empty Message
+POST {{baseUrl}}/api/donations/{{initDonation.response.body.data.donation_id}}/reply
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "reply": "   "
+}
+
+# ❌ Expected: 400 - "Reply message is required"
+
+###
+
+### 12.5 Reply - No Auth
+POST {{baseUrl}}/api/donations/{{initDonation.response.body.data.donation_id}}/reply
+Content-Type: application/json
+
+{
+  "reply": "No auth reply"
+}
+
+# ❌ Expected: 401 Unauthorized
+
+###
+
+###############################################
+# SECTION 13: GET MESSAGES
+###############################################
+
+### 13.1 Donor Gets Received Messages
+GET {{baseUrl}}/api/donations/messages/received
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+
+# ✅ Expected: 200 OK - Thank you messages from recipients
+
+###
+
+### 13.2 Recipient Gets Sent Messages
+GET {{baseUrl}}/api/donations/messages/sent
+Authorization: Bearer {{loginRecipient.response.body.data.accessToken}}
+
+# ✅ Expected: 200 OK - Thank you messages they sent
+
+###
+
+### 13.3 Messages - With Pagination
+GET {{baseUrl}}/api/donations/messages/received?page=1&limit=5
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+
+###
+
+### 13.4 Messages - No Auth
+GET {{baseUrl}}/api/donations/messages/received
+
+# ❌ Expected: 401 Unauthorized
+
+###
+
+###############################################
+# SECTION 14: NOTIFICATIONS
+###############################################
+
+### 14.1 Get All Notifications
+GET {{baseUrl}}/api/notifications
+Authorization: Bearer {{loginRecipient.response.body.data.accessToken}}
+
+# ✅ Expected: 200 OK
+# Should see:
+# - "donation_received" notification
+# - "beg_funded" notification (if beg reached 100%)
+
+###
+
+### 14.2 Get Unread Count
+GET {{baseUrl}}/api/notifications/unread-count
+Authorization: Bearer {{loginRecipient.response.body.data.accessToken}}
+
+# ✅ Expected: { "data": { "unread_count": 2 } }
+
+###
+
+### 14.3 Mark Single Notification as Read
+# @name getNotifications
+GET {{baseUrl}}/api/notifications
+Authorization: Bearer {{loginRecipient.response.body.data.accessToken}}
+
+###
+
+PATCH {{baseUrl}}/api/notifications/PASTE_NOTIFICATION_ID/read
+Authorization: Bearer {{loginRecipient.response.body.data.accessToken}}
+
+# ✅ Expected: 200 OK
+
+###
+
+### 14.4 Mark All Notifications as Read
+PATCH {{baseUrl}}/api/notifications/read-all
+Authorization: Bearer {{loginRecipient.response.body.data.accessToken}}
+
+# ✅ Expected: 200 OK
+
+###
+
+### 14.5 Delete a Notification
+DELETE {{baseUrl}}/api/notifications/PASTE_NOTIFICATION_ID
+Authorization: Bearer {{loginRecipient.response.body.data.accessToken}}
+
+# ✅ Expected: 200 OK
+
+###
+
+### 14.6 Notifications - With Pagination
+GET {{baseUrl}}/api/notifications?page=1&limit=5
+Authorization: Bearer {{loginRecipient.response.body.data.accessToken}}
+
+###
+
+### 14.7 Notifications - No Auth
+GET {{baseUrl}}/api/notifications
+
+# ❌ Expected: 401 Unauthorized
+
+###
+
+###############################################
+# SECTION 15: EDGE CASES
+###############################################
+
+### 15.1 Donate to Fully Funded Beg
+POST {{baseUrl}}/api/donations/initialize
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "begId": "PASTE_FUNDED_BEG_ID",
+  "amount": 5000,
+  "isAnonymous": false,
+  "paymentMethod": "card"
+}
+
+# ❌ Expected: 400 - "This beg is already fully funded"
+
+###
+
+### 15.2 Donate to Expired Beg
+POST {{baseUrl}}/api/donations/initialize
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "begId": "PASTE_EXPIRED_BEG_ID",
+  "amount": 5000,
+  "isAnonymous": false,
+  "paymentMethod": "card"
+}
+
+# ❌ Expected: 400 - "This beg has expired"
+
+###
+
+### 15.3 Donate to Inactive Beg
+POST {{baseUrl}}/api/donations/initialize
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "begId": "PASTE_INACTIVE_BEG_ID",
+  "amount": 5000,
+  "isAnonymous": false,
+  "paymentMethod": "card"
+}
+
+# ❌ Expected: 400 - "This beg is no longer active"
+
+###
+
+### 15.4 Multiple Donations to Same Beg (Allowed)
+POST {{baseUrl}}/api/donations/initialize
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "begId": "1d3379b8-5727-46c4-b170-4f83afd71ff8",
+  "amount": 1000,
+  "isAnonymous": false,
+  "paymentMethod": "card"
+}
+
+# ✅ Expected: 201 Created (users can donate multiple times)
+
+###
+
+###############################################
+# SECTION 16: DATABASE VERIFICATION QUERIES
+# Run these in psql after completing payments
+###############################################
+
+# 16.1 Check Donation Status
+# psql pliz_app -c "SELECT id, amount, is_anonymous, payment_method, status FROM donations ORDER BY created_at DESC LIMIT 5;"
+
+# 16.2 Check Beg Amount Raised
+# psql pliz_app -c "SELECT id, title, amount_requested, amount_raised, status FROM begs WHERE id = '1d3379b8-5727-46c4-b170-4f83afd71ff8';"
+
+# 16.3 Check Recipient Stats
+# psql pliz_app -c "SELECT u.email, s.total_received, s.total_donated FROM user_stats s JOIN users u ON s.user_id = u.id WHERE u.email = 'chigoziegodwin93@gmail.com';"
+
+# 16.4 Check Donor Stats
+# psql pliz_app -c "SELECT u.email, s.total_donated FROM user_stats s JOIN users u ON s.user_id = u.id WHERE u.email = 'impactliveconsult@gmail.com';"
+
+# 16.5 Check Donor Ranks
+# psql pliz_app -c "SELECT u.email, dr.rank_name, dr.total_donated, dr.donation_count, dr.streak_days FROM donor_ranks dr JOIN users u ON dr.user_id = u.id;"
+
+# 16.6 Check Gratitude Messages
+# psql pliz_app -c "SELECT id, donation_id, content, donor_reply_allowed, donor_replied FROM gratitude_messages ORDER BY created_at DESC LIMIT 5;"
+
+# 16.7 Check Notifications
+# psql pliz_app -c "SELECT u.email, n.type, n.title, n.is_read FROM notifications n JOIN users u ON n.user_id = u.id ORDER BY n.created_at DESC LIMIT 10;"
+
+# 16.8 Check Trust Engine Logs
+# grep "Suspicious activity" logs/combined.log | tail -20
+
+###############################################
+# SECTION 17: TRUST ENGINE - MONITORING
+###############################################
+
+### 17.1 Get All Suspicious Activities
+# grep "Suspicious activity" logs/combined.log | tail -50
+
+###
+
+### 17.2 Count Activity Types
+# grep "activityType" logs/combined.log | \
+#   sed 's/.*"activityType":"\([^"]*\)".*/\1/' | \
+#   sort | uniq -c | sort -rn
+
+###
+
+### 17.3 Get Flagged Users (SQL)
+# psql pliz_app -c "
+#   SELECT u.email, s.abuse_flags, s.total_donated
+#   FROM user_stats s
+#   JOIN users u ON s.user_id = u.id
+#   WHERE s.abuse_flags > 0
+#   ORDER BY s.abuse_flags DESC;
+# "
+
+###
+
+### 17.4 Get Large Donations (SQL)
+# psql pliz_app -c "
+#   SELECT d.id, d.amount, u.email as donor_email, d.created_at
+#   FROM donations d
+#   LEFT JOIN users u ON d.donor_id = u.id
+#   WHERE d.amount > 50000
+#   ORDER BY d.amount DESC;
+# "
+
+###
+
+### 17.5 Check Self-Donation Attempts (SQL)
+# psql pliz_app -c "
+#   SELECT d.id, d.donor_id, b.user_id as beg_owner_id
+#   FROM donations d
+#   JOIN begs b ON d.beg_id = b.id
+#   WHERE d.donor_id = b.user_id;
+# "
+# Expected: Empty result (blocked before DB insert)
+
+###
+
+###############################################
+# SECTION 18: COMPLETE END-TO-END JOURNEY
+###############################################
+
+### Step 1: Get Available Begs
+GET {{baseUrl}}/api/begs?status=active&limit=5
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+
+###
+
+### Step 2: Initialize Donation
+# @name e2eDonation
+POST {{baseUrl}}/api/donations/initialize
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "begId": "1d3379b8-5727-46c4-b170-4f83afd71ff8",
+  "amount": 3000,
+  "isAnonymous": false,
+  "paymentMethod": "card"
+}
+
+# → Open payment_url in browser, complete payment
+
+###
+
+### Step 3: Check Donor Rank Updated
+GET {{baseUrl}}/api/donations/my-rank
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+
+###
+
+### Step 4: Check Recipient Notifications
+GET {{baseUrl}}/api/notifications
+Authorization: Bearer {{loginRecipient.response.body.data.accessToken}}
+
+###
+
+### Step 5: Recipient Sends Gratitude
+POST {{baseUrl}}/api/donations/{{e2eDonation.response.body.data.donation_id}}/gratitude
+Authorization: Bearer {{loginRecipient.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "content": "This really saved me today! Thank you from the bottom of my heart 🙏",
+  "donorReplyAllowed": true
+}
+
+###
+
+### Step 6: Donor Checks Notifications
+GET {{baseUrl}}/api/notifications
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+
+###
+
+### Step 7: Donor Reads Message
+GET {{baseUrl}}/api/donations/messages/received
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+
+###
+
+### Step 8: Donor Replies
+POST {{baseUrl}}/api/donations/{{e2eDonation.response.body.data.donation_id}}/reply
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "reply": "You're very welcome! Wishing you all the best 🌟"
+}
+
+###
+
+### Step 9: Recipient Checks Notifications Again
+GET {{baseUrl}}/api/notifications
+Authorization: Bearer {{loginRecipient.response.body.data.accessToken}}
+
+###
+
+### Step 10: Recipient Reads Reply
+GET {{baseUrl}}/api/donations/messages/sent
+Authorization: Bearer {{loginRecipient.response.body.data.accessToken}}
+
+###
+
+### Step 11: Mark All Notifications Read
+PATCH {{baseUrl}}/api/notifications/read-all
+Authorization: Bearer {{loginRecipient.response.body.data.accessToken}}
+
+###
+
+###############################################
+# SECTION 19: CLEANUP & RESET (DEV ONLY)
+###############################################
+
+### Reset Cooldown
+DELETE {{baseUrl}}/api/begs/dev/reset-cooldown
+Authorization: Bearer {{loginDonor.response.body.data.accessToken}}
+
+###
+# Check what IP Express sees
+curl http://localhost:3000/api/test-ip
+
+# Behind ngrok
+curl https://YOUR_NGROK_URL.ngrok.io/api/test-ip
+
+### Reset Abuse Flags
+# SQL: UPDATE user_stats SET abuse_flags = 0;
+
+###
+
+### Reset Beg Amount Raised
+# SQL: UPDATE begs SET amount_raised = 0, status = 'active' WHERE id = '1d3379b8-5727-46c4-b170-4f83afd71ff8';
+
+###
+
+###############################################
+# TEST SUMMARY
+###############################################
+
+# Total Tests: 95+
+#
+# ✅ Donation Initialization (15 tests)
+#   - Success cases (5)
+#   - Validation failures (7)
+#   - Edge cases (3)
+#
+# ✅ Trust Engine (15 tests)
+#   - Self-donation blocking (2)
+#   - Large donations (3)
+#   - Abuse flags (5)
+#   - Monitoring (5)
+#
+# ✅ Payment Verification (3 tests)
+#
+# ✅ Get Donation Details (3 tests)
+#
+# ✅ Donation History (4 tests)
+#
+# ✅ Beg Donations (4 tests)
+#
+# ✅ Donor Rank (3 tests)
+#
+# ✅ Gratitude Messages (7 tests)
+#
+# ✅ Donor Replies (5 tests)
+#
+# ✅ Get Messages (4 tests)
+#
+# ✅ Notifications (7 tests)
+#
+# ✅ Edge Cases (4 tests)
+#
+# ✅ Database Verification (8 queries)
+#
+# ✅ End-to-End Journey (11 steps)
+#
+# ✅ Cleanup (3 operations)
+
+# Watch server logs
+tail -f logs/combined.log
+
+# Check trust engine logs
+grep "Suspicious activity" logs/combined.log
+grep "self_donation_attempt" logs/combined.log
+grep "large_donation_attempt" logs/combined.log

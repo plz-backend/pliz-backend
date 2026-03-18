@@ -7,41 +7,473 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-//Use
-model User {
-  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  username         String    @unique @db.VarChar(50)
-  email            String    @unique @db.VarChar(255)
-  passwordHash     String    @map("password_hash") @db.Text
-  isEmailVerified  Boolean   @default(false) @map("is_email_verified")
-  emailVerifiedAt  DateTime? @map("email_verified_at") @db.Timestamp(6)
-  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
-  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
-  sessions         Session[]
+// ============================================
+// ENUMS
+// ============================================
 
+// Define UserRole enum BEFORE the User model
+enum UserRole {
+  user
+  admin
+  superadmin
+}
+
+// =====================================================
+// MODELS
+// =====================================================
+
+model User {
+  id                          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email                       String    @unique @db.VarChar(255)
+  username                    String    @unique @db.VarChar(50)
+  passwordHash                String    @map("password_hash") @db.VarChar(255)  // 
+  role                        UserRole  @default(user) // user, admin, superadmin
+  isEmailVerified             Boolean   @default(false) @map("is_email_verified")
+  emailVerifiedAt             DateTime? @map("email_verified_at") @db.Timestamp(6)
+  isProfileComplete           Boolean   @default(false) @map("is_profile_complete") 
+
+  // SUSPENSION FIELDS
+  isSuspended            Boolean   @default(false) @map("is_suspended")
+  suspensionReason       String?   @map("suspension_reason") @db.Text
+  suspendedAt            DateTime? @map("suspended_at") @db.Timestamp(6)
+  suspendedBy            String?   @map("suspended_by") @db.Uuid
+
+  // INVESTIGATION FIELDS
+  isUnderInvestigation   Boolean   @default(false) @map("is_under_investigation")
+  investigationReason    String?   @map("investigation_reason") @db.Text
+  investigationStartedAt DateTime? @map("investigation_started_at") @db.Timestamp(6)
+  
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  // Relations
+  sessions          Session[]
+  begs              Beg[]
+  donations         Donation[]
+  stats             UserStats?
+  cooldown          Cooldown?
+  trust             UserTrust?
+  verification      UserVerification?
+  profile           UserProfile?
+  reportsCreated    Report[]          @relation("ReporterReports")
+  reportsReceived   Report[]          @relation("TargetUserReports")
+  donorRank         DonorRank?
+  notifications     Notification[]
+  savedCards        SavedCard[]
+  bankAccounts      BankAccount[]
+  withdrawals       Withdrawal[]
+  
+  // ADMIN ACTIONS
+  adminActions      AdminAction[] @relation("AdminActions")
+  targetedActions   AdminAction[] @relation("TargetedUser")
+
+  @@index([email])
+  @@index([username])
+  @@index([role])
+  @@index([isSuspended])
+  @@index([isUnderInvestigation])
   @@map("app_users")
 }
 
-//Session Manager
+
+// User Profile Model (REQUIRED - Basic Info)
+// This is completed AFTER signup, BEFORE using the app
+
+model UserProfile {
+  userId       String   @id @map("user_id") @db.Uuid
+  firstName    String   @map("first_name") @db.VarChar(100)
+  middleName   String?  @map("middle_name") @db.VarChar(100)
+  lastName     String   @map("last_name") @db.VarChar(100)
+  phoneNumber  String   @map("phone_number") @db.VarChar(20)
+  agreeToTerms Boolean  @default(false) @map("agree_to_terms")
+  displayName  String?  @map("display_name") @db.VarChar(150) // Optional public name
+  isAnonymous  Boolean  @default(false) @map("is_anonymous")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([phoneNumber])
+  @@map("user_profiles")
+}
+
 model Session {
-  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId       String    @map("user_id") @db.Uuid
-  refreshToken String    @map("refresh_token") @db.Text
-  active       Boolean   @default(true)
-  lastActive   DateTime  @default(now()) @map("last_active") @db.Timestamp(6)
-  expiresAt    DateTime  @map("expires_at") @db.Timestamp(6)
-  userAgent    String?   @map("user_agent") @db.Text
-  browser      String?   @db.VarChar(50)
-  os           String?   @db.VarChar(50)
-  device       String?   @db.VarChar(50)
-  deviceInfo   String?   @map("device_info") @db.Text 
-  ipAddress    String?   @map("ip_address") @db.VarChar(45)
-  country      String?   @db.VarChar(100)
-  city         String?   @db.VarChar(100)
-  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
-  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  refreshToken String?   @map("refresh_token") @db.Text
+  active       Boolean  @default(true)
+  lastActive   DateTime @default(now()) @map("last_active") @db.Timestamp(6)
+  expiresAt    DateTime @map("expires_at") @db.Timestamp(6)
+  userAgent    String?  @map("user_agent") @db.Text
+  browser      String?  @db.VarChar(50)
+  os           String?  @db.VarChar(50)
+  device       String?  @db.VarChar(50)
+  ipAddress    String?  @map("ip_address") @db.VarChar(45)
+  country      String?  @db.VarChar(100)
+  city         String?  @db.VarChar(100)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamp(6)  // ADDED
+
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, active])
   @@index([expiresAt])
   @@map("session_manager")
 }
+
+
+
+// Category Model - Beg categories (food, transport, rent, etc.)
+model Category {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String   @unique @db.VarChar(50) // e.g., "Food"
+  slug        String   @unique @db.VarChar(50) // e.g., "food"
+  description String?  @db.Text
+  icon        String?  @db.VarChar(50) // emoji or icon name
+  isActive    Boolean  @default(true) @map("is_active")
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  // Relations
+  begs Beg[]
+
+  @@index([isActive])
+  @@index([sortOrder])
+  @@map("categories")
+}
+
+// Update the Beg model to use categoryId instead of category string
+
+model Beg {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId          String    @map("user_id") @db.Uuid
+  categoryId      String    @map("category_id") @db.Uuid
+  title           String    @db.VarChar(25)  // Max 25 characters
+  description     String?   @db.VarChar(500) // NEW - Max ~30 words (500 chars)
+  amountRequested Decimal   @map("amount_requested") @db.Decimal(12, 2)
+  amountRaised    Decimal   @default(0) @map("amount_raised") @db.Decimal(12, 2)
+  status          String    @default("active") @db.VarChar(20)
+  approved        Boolean   @default(false)
+  approvedAt      DateTime? @map("approved_at") @db.Timestamp(6) // NEW
+  approvedBy      String?   @map("approved_by") @db.Uuid
+  rejectedAt      DateTime? @map("rejected_at") @db.Timestamp(6) // NEW
+  rejectedBy      String?   @map("rejected_by") @db.Uuid // NEW
+  rejectionReason String?   @map("rejection_reason") @db.Text // NEW
+  expiresAt       DateTime  @map("expires_at") @db.Timestamp(6)
+  payoutRequested Boolean   @default(false) @map("payout_requested")
+  isWithdrawn     Boolean   @default(false) @map("is_withdrawn")
+  withdrawnAt     DateTime? @map("withdrawn_at") @db.Timestamp(6)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
+
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamp(6) 
+
+   // Media fields
+  mediaType        String?   @default("text") @map("media_type") @db.VarChar(10)
+  mediaUrl         String?   @map("media_url") @db.Text
+
+  // Relations
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category    Category     @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  donations   Donation[]
+  withdrawals Withdrawal[]
+  reports     Report[]
+
+  @@index([userId])
+  @@index([categoryId])
+  @@index([status])
+  @@index([approved])
+  @@index([expiresAt])
+  @@index([isWithdrawn])
+  @@map("begs")
+}
+
+//
+//Donation Model
+//Tracks all donations made to begs
+//
+model Donation {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  begId            String   @map("request_id") @db.Uuid
+  donorId          String?  @map("donor_id") @db.Uuid // Nullable for deleted users
+  amount           Decimal  @db.Decimal(12, 2) // Must be > 0 enforced in app
+  isAnonymous      Boolean  @default(false) @map("is_anonymous")
+  paymentMethod    String?  @map("payment_method") @db.VarChar(30)
+  paymentReference String?  @map("payment_reference") @db.VarChar(255)
+  status           String   @default("success") @db.VarChar(20) // Values: success, failed, reversed
+  ipAddress        String?   @map("ip_address") @db.VarChar(45)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  
+
+  // Relations
+  beg              Beg               @relation(fields: [begId], references: [id], onDelete: Cascade)
+  donor            User?             @relation(fields: [donorId], references: [id], onDelete: SetNull)
+  gratitudeMessage GratitudeMessage?
+
+  
+  @@index([begId])
+  @@index([donorId])
+  @@index([status])
+  @@index([ipAddress, createdAt])
+  @@index([createdAt])
+  @@map("donations")
+}
+
+//Admin Action Model
+//Logs all administrative actions
+// Admin Action Log
+model AdminAction {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  adminId     String   @map("admin_id") @db.Uuid
+  actionType  String   @map("action_type") @db.VarChar(50)
+  targetType  String?  @map("target_type") @db.VarChar(50) // user, beg, withdrawal, etc.
+  targetId    String?  @map("target_id") @db.Uuid
+  description String   @db.Text
+  metadata    Json?    @db.JsonB
+  ipAddress   String?  @map("ip_address") @db.VarChar(45)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+
+  // Relations
+  admin       User     @relation("AdminActions", fields: [adminId], references: [id], onDelete: Cascade)
+  targetUser  User?    @relation("TargetedUser", fields: [targetId], references: [id], onDelete: SetNull)
+
+  @@index([adminId])
+  @@index([actionType])
+  @@index([targetType])
+  @@index([createdAt])
+  @@map("admin_actions")
+}
+
+//Report Model
+//User-generated reports for flagging abuse
+
+model Report {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reporterId   String?  @map("reporter_id") @db.Uuid
+  targetUserId String?  @map("target_user_id") @db.Uuid
+  begId        String?  @map("request_id") @db.Uuid
+  reason       String?  @db.Text
+  resolved     Boolean  @default(false)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+
+  // Relations
+  reporter   User? @relation("ReporterReports", fields: [reporterId], references: [id], onDelete: SetNull)
+  targetUser User? @relation("TargetUserReports", fields: [targetUserId], references: [id], onDelete: SetNull)
+  beg        Beg?  @relation(fields: [begId], references: [id], onDelete: SetNull)
+
+  @@index([reporterId])
+  @@index([targetUserId])
+  @@index([begId])
+  @@index([resolved])
+  @@map("reports")
+}
+
+//Gratitude Message Model
+//Thank you messages from beg creators to donors
+
+model GratitudeMessage {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  donationId        String    @unique @map("donation_id") @db.Uuid
+  messageType       Int       @default(1) @map("message_type") @db.SmallInt  // 1=text, 2=audio (coming soon)
+  content           String?   @db.Text
+  donorReplyAllowed Boolean   @default(true) @map("donor_reply_allowed")
+  donorReplied      Boolean   @default(false) @map("donor_replied")
+  donorReply        String?   @map("donor_reply") @db.Text
+  donorRepliedAt    DateTime? @map("donor_replied_at") @db.Timestamp(6)
+  expiresAt         DateTime? @map("expires_at") @db.Timestamp(6)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
+
+  donation          Donation  @relation(fields: [donationId], references: [id], onDelete: Cascade)
+
+  @@index([donationId])
+  @@map("gratitude_messages")
+}
+
+model UserStats {
+  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId              String   @unique @map("user_id") @db.Uuid
+  requestsCount       Int      @default(0) @map("requests_count")
+  totalReceived       Decimal  @default(0) @map("total_received") @db.Decimal(12, 2)
+  totalWithdrawn      Decimal  @default(0) @map("total_withdrawn") @db.Decimal(12, 2) // NEW
+  availableBalance    Decimal  @default(0) @map("available_balance") @db.Decimal(12, 2) // NEW
+  totalDonated        Decimal  @default(0) @map("total_donated") @db.Decimal(12, 2)
+  abuseFlags          Int      @default(0) @map("abuse_flags")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("user_stats")
+}
+
+//User Trust Model
+//Trust tier and eligibility tracking
+
+model UserTrust {
+  userId        String    @id @map("user_id") @db.Uuid
+  trustTier     Int       @default(1) @map("trust_tier") @db.SmallInt // Values: 1, 2, 3
+  lastRequestAt DateTime? @map("last_request_at") @db.Timestamp(6)
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_trust")
+}
+
+//Cooldown Model
+//Request cooldown periods for users
+
+model Cooldown {
+  userId               String   @id @map("user_id") @db.Uuid
+  nextRequestAllowedAt DateTime @map("next_request_allowed_at") @db.Timestamp(6)
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([nextRequestAllowedAt])
+  @@map("cooldowns")
+}
+
+// User Verification Model (OPTIONAL - KYC for Trust Score)
+// ✅ This is SEPARATE from profile - done LATER for higher trust
+model UserVerification {
+  userId               String    @id @map("user_id") @db.Uuid
+  idDocumentType       String?   @map("id_document_type") @db.VarChar(50) // passport, drivers_license, national_id
+  idDocumentNumber     String?   @map("id_document_number") @db.VarChar(100)
+  idDocumentUrl        String?   @map("id_document_url") @db.Text // S3/cloud storage URL
+  selfieUrl            String?   @map("selfie_url") @db.Text
+  addressProofUrl      String?   @map("address_proof_url") @db.Text
+  phoneVerified        Boolean   @default(false) @map("phone_verified")
+  documentVerified     Boolean   @default(false) @map("document_verified")
+  addressVerified      Boolean   @default(false) @map("address_verified")
+  verificationProvider String?   @map("verification_provider") @db.VarChar(100) // e.g., "Smile Identity", "Youverify"
+  verifiedAt           DateTime? @map("verified_at") @db.Timestamp(6)
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt            DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_verifications")
+}
+
+// ADD new DonorRank model:
+model DonorRank {
+  userId        String    @id @map("user_id") @db.Uuid
+  rankName      String    @default("Tryer") @map("rank_name") @db.VarChar(50)
+  totalDonated  Decimal   @default(0) @map("total_donated") @db.Decimal(12, 2)
+  donationCount Int       @default(0) @map("donation_count")
+  streakDays    Int       @default(0) @map("streak_days")
+  lastDonatedAt DateTime? @map("last_donated_at") @db.Timestamp(6)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt     DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("donor_ranks")
+}
+
+// ADD Notification model:
+model Notification {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  type      String   @db.VarChar(50)   // beg_funded | donation_received | message_received | donor_reply
+  title     String   @db.VarChar(255)
+  body      String   @db.Text
+  data      Json?
+  isRead    Boolean  @default(false) @map("is_read")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+
+model SavedCard {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId            String   @map("user_id") @db.Uuid
+  authorizationCode String   @unique @map("authorization_code") @db.VarChar(255)
+  cardType          String   @map("card_type") @db.VarChar(20) // visa, mastercard
+  last4             String   @db.VarChar(4)
+  expMonth          String   @map("exp_month") @db.VarChar(2)
+  expYear           String   @map("exp_year") @db.VarChar(4)
+  bank              String?  @db.VarChar(100)
+  isDefault         Boolean  @default(false) @map("is_default")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isDefault])
+  @@map("saved_cards")
+}
+
+model BankAccount {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  accountNumber String    @map("account_number") @db.VarChar(10)
+  accountName   String    @map("account_name") @db.VarChar(255)
+  bankCode      String    @map("bank_code") @db.VarChar(10)
+  bankName      String    @map("bank_name") @db.VarChar(100)
+  isVerified    Boolean   @default(false) @map("is_verified")
+  isDefault     Boolean   @default(false) @map("is_default")
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
+
+  // Relations
+  user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  withdrawals   Withdrawal[]
+
+  @@unique([userId, accountNumber])
+  @@index([userId])
+  @@index([isDefault])
+  @@map("bank_accounts")
+}
+
+
+model Withdrawal {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId            String    @map("user_id") @db.Uuid
+  begId             String    @map("beg_id") @db.Uuid
+  bankAccountId     String    @map("bank_account_id") @db.Uuid
+  amountRequested   Decimal   @map("amount_requested") @db.Decimal(12, 2)
+  companyFee        Decimal   @map("company_fee") @db.Decimal(12, 2) // 5%
+  vatFee            Decimal   @map("vat_fee") @db.Decimal(12, 2) // 7.5%
+  totalFees         Decimal   @map("total_fees") @db.Decimal(12, 2) // 12.5%
+  amountToReceive   Decimal   @map("amount_to_receive") @db.Decimal(12, 2)
+  transferReference String?   @unique @map("transfer_reference") @db.VarChar(255)
+  status            String    @default("pending") @db.VarChar(20) // pending, processing, completed, failed
+  failureReason     String?   @map("failure_reason") @db.Text
+  autoProcessed     Boolean   @default(false) @map("auto_processed") // NEW
+  processedAt       DateTime? @map("processed_at") @db.Timestamp(6)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
+
+  // Relations
+  user              User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  beg               Beg          @relation(fields: [begId], references: [id], onDelete: Cascade)
+  bankAccount       BankAccount  @relation(fields: [bankAccountId], references: [id], onDelete: Restrict)
+
+  @@index([userId])
+  @@index([begId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("withdrawals")
+}
+
+//
+//RELATIONSHIP
+//User → Begs (one-to-many)
+//User → Donations (one-to-many)
+//Beg → Donations (one-to-many)
+//Donation → GratitudeMessage (one-to-one)
+//User → UserStats (one-to-one)
+//User → UserTrust (one-to-one)
+//User → Cooldown (one-to-one)
+//User → UserVerification (one-to-one)
+//User → UserProfile (one-to-one)
+//User → SavedCard (one-to-one)

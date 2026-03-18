@@ -2,13 +2,15 @@ import { TokenService } from '../../services/tokenService';
 import { CacheService } from '../../services/cacheService';
 import { Request, Response } from 'express';
 import { UserService } from '../../services/user.service';
-import { SessionService } from '../../services/session.service';
+import prisma from '../../../../config/database';  // 
 import {
   ILoginRequest,
   IUserResponse,
   IApiResponse,
 } from '../../types/user.interface';
 import logger from '../../../../config/logger';
+
+
 
 /**
  * Helper to send response
@@ -29,10 +31,11 @@ const sendResponse = <T = any>(
 export const login = async (req: Request, res: Response): Promise<void> => {
   try {
     const { email, password } = req.body as ILoginRequest;
-
     logger.info('Login attempt', { email, ip: req.ip });
 
-    // Find user by email
+    // ============================================
+    // FIND USER
+    // ============================================
     const user = await UserService.findByEmail(email);
 
     if (!user) {
@@ -45,7 +48,9 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Verify password
+    // ============================================
+    // VERIFY PASSWORD
+    // ============================================
     const isPasswordValid = await UserService.comparePassword(
       password,
       user.passwordHash
@@ -64,7 +69,9 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Check if email is verified
+    // ============================================
+    // CHECK EMAIL VERIFICATION
+    // ============================================
     if (!user.isEmailVerified) {
       logger.warn('Login failed: Email not verified', {
         userId: user.id,
@@ -78,7 +85,25 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Get device and IP information
+    // ============================================
+    // CHECK IF ACCOUNT IS SUSPENDED
+    // ============================================
+    if (user.isSuspended) {
+      logger.warn('Login failed: Account suspended', {
+        userId: user.id,
+        email,
+      });
+      const response: IApiResponse = {
+        success: false,
+        message: 'Your account has been suspended. Please contact support.',
+      };
+      sendResponse(res, 403, response);
+      return;
+    }
+
+    // ============================================
+    // PREPARE SESSION DATA
+    // ============================================
     const userAgent = req.headers['user-agent'] || 'Unknown';
     const ipAddress = (
       req.ip ||
@@ -86,35 +111,72 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       'Unknown'
     ).replace('::ffff:', '');
 
-    // Generate refresh token
-    const tempRefreshToken = TokenService.generateRefreshToken(
+    // ✅ Generate a temporary session ID for token generation
+    const crypto = require('crypto');
+    const tempSessionId = crypto.randomUUID();
+
+    // ============================================
+    // GENERATE REFRESH TOKEN FIRST
+    // ============================================
+    // ✅ Generate refresh token BEFORE creating session
+    const refreshToken = TokenService.generateRefreshToken(
       user.id,
-      user.email
+      user.email,
+      user.role,
+      tempSessionId  // Use temp ID first
     );
 
-    // Create session (returns ISession with nested structure)
-    const session = await SessionService.createSession(
-      user.id,
-      tempRefreshToken,
-      userAgent,
-      ipAddress
-    );
+    // ============================================
+    // CREATE SESSION WITH REFRESH TOKEN
+    // ============================================
+    // ✅ Create session in database WITH refreshToken
+    const session = await prisma.session.create({
+      data: {
+        userId: user.id,
+        userAgent,
+        ipAddress,
+        refreshToken,  // ✅ Include refresh token
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+      },
+    });
 
-    // Generate access token with sessionId
+    // ============================================
+    // GENERATE TOKENS WITH REAL SESSION ID
+    // ============================================
+    // ✅ Generate access token with real session ID
     const accessToken = TokenService.generateAccessToken(
       user.id,
       user.email,
-      session.id
+      user.role,
+      session.id  // Real session ID
     );
 
-    const refreshToken = tempRefreshToken;
+    // ✅ Re-generate refresh token with real session ID
+    const finalRefreshToken = TokenService.generateRefreshToken(
+      user.id,
+      user.email,
+      user.role,
+      session.id  // Real session ID
+    );
 
-    // Cache user session data
+    // ✅ Update session with correct refresh token
+    await prisma.session.update({
+      where: { id: session.id },
+      data: { refreshToken: finalRefreshToken },
+    });
+
+    // ✅ Store refresh token in Redis cache
+    await CacheService.setRefreshToken(session.id, finalRefreshToken);
+
+    // ============================================
+    // CACHE USER SESSION (OPTIONAL)
+    // ============================================
     await CacheService.cacheUserSession(
       user.id,
       {
         email: user.email,
         username: user.username,
+        role: user.role,
         lastLogin: new Date(),
       },
       15 * 60 // 15 minutes
@@ -124,14 +186,24 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       userId: user.id,
       email,
       sessionId: session.id,
+      role: user.role,
     });
 
-    // Prepare response
+    // ============================================
+    // PREPARE RESPONSE
+    // ============================================
     const userResponse: IUserResponse = {
       id: user.id,
       username: user.username,
       email: user.email,
+      role: user.role,
       isEmailVerified: user.isEmailVerified,
+      emailVerifiedAt: user.emailVerifiedAt,
+      isProfileComplete: user.isProfileComplete,
+      isSuspended: user.isSuspended,
+      isUnderInvestigation: user.isUnderInvestigation,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
     };
 
     const response: IApiResponse<{
@@ -144,7 +216,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       data: {
         user: userResponse,
         accessToken,
-        refreshToken,
+        refreshToken: finalRefreshToken,  // ✅ Use final refresh token
       },
     };
 
@@ -159,6 +231,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       success: false,
       message: 'Login failed. Please try again.',
     };
+
     sendResponse(res, 500, response);
   }
 };

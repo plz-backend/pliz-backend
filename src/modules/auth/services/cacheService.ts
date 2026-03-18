@@ -1,5 +1,4 @@
 // ========== CACHE: Redis cache service for tokens and sessions ==========
-
 import redisClient from '../../../config/redis';
 import logger from '../../../config/logger';
 
@@ -8,6 +7,10 @@ import logger from '../../../config/logger';
  * Handles Redis operations for authentication
  */
 export class CacheService {
+  // ============================================
+  // TOKEN BLACKLIST
+  // ============================================
+
   /**
    * Blacklist a token (for logout)
    */
@@ -44,6 +47,73 @@ export class CacheService {
       return false;
     }
   }
+
+  // ============================================
+  // REFRESH TOKENS (SESSION MANAGEMENT)
+  // ============================================
+
+  /**
+   * Store refresh token for a session
+   * ✅ NEW METHOD
+   */
+  static async setRefreshToken(
+    sessionId: string,
+    refreshToken: string,
+    expirySeconds: number = 604800 // 7 days
+  ): Promise<void> {
+    try {
+      const client = redisClient.getClient();
+      const key = `refresh_token:${sessionId}`;
+      
+      await client.setEx(key, expirySeconds, refreshToken);
+      
+      logger.debug('Refresh token stored', { sessionId, expirySeconds });
+    } catch (error) {
+      logger.error('Failed to store refresh token', { error, sessionId });
+      throw error;
+    }
+  }
+
+  /**
+   * Get refresh token for a session
+   * ✅ NEW METHOD
+   */
+  static async getRefreshToken(sessionId: string): Promise<string | null> {
+    try {
+      const client = redisClient.getClient();
+      const key = `refresh_token:${sessionId}`;
+      
+      const token = await client.get(key);
+      
+      logger.debug('Refresh token retrieved', { sessionId, found: !!token });
+      return token;
+    } catch (error) {
+      logger.error('Failed to get refresh token', { error, sessionId });
+      return null;
+    }
+  }
+
+  /**
+   * Delete refresh token for a session
+   * ✅ NEW METHOD - This was missing!
+   */
+  static async deleteRefreshToken(sessionId: string): Promise<void> {
+    try {
+      const client = redisClient.getClient();
+      const key = `refresh_token:${sessionId}`;
+      
+      await client.del(key);
+      
+      logger.debug('Refresh token deleted', { sessionId });
+    } catch (error) {
+      logger.error('Failed to delete refresh token', { error, sessionId });
+      // Don't throw - cache deletion is optional
+    }
+  }
+
+  // ============================================
+  // USER SESSION CACHE
+  // ============================================
 
   /**
    * Cache user session data
@@ -103,6 +173,72 @@ export class CacheService {
       // Don't throw - cache deletion is optional
     }
   }
+
+  // ============================================
+  // EMAIL VERIFICATION OTP
+  // ============================================
+
+  /**
+   * Store email verification OTP
+   * ✅ NEW METHOD
+   */
+  static async setEmailOTP(
+    email: string,
+    otp: string,
+    expirySeconds: number = 600 // 10 minutes
+  ): Promise<void> {
+    try {
+      const client = redisClient.getClient();
+      const key = `email_otp:${email.toLowerCase()}`;
+      
+      await client.setEx(key, expirySeconds, otp);
+      
+      logger.info('Email OTP stored', { email, expirySeconds });
+    } catch (error) {
+      logger.error('Failed to store email OTP', { error, email });
+      throw error;
+    }
+  }
+
+  /**
+   * Get email verification OTP
+   * ✅ NEW METHOD
+   */
+  static async getEmailOTP(email: string): Promise<string | null> {
+    try {
+      const client = redisClient.getClient();
+      const key = `email_otp:${email.toLowerCase()}`;
+      
+      const otp = await client.get(key);
+      
+      logger.debug('Email OTP retrieved', { email, found: !!otp });
+      return otp;
+    } catch (error) {
+      logger.error('Failed to get email OTP', { error, email });
+      return null;
+    }
+  }
+
+  /**
+   * Delete email verification OTP
+   * ✅ NEW METHOD
+   */
+  static async deleteEmailOTP(email: string): Promise<void> {
+    try {
+      const client = redisClient.getClient();
+      const key = `email_otp:${email.toLowerCase()}`;
+      
+      await client.del(key);
+      
+      logger.debug('Email OTP deleted', { email });
+    } catch (error) {
+      logger.error('Failed to delete email OTP', { error, email });
+    }
+  }
+
+  // ============================================
+  // EMAIL VERIFICATION TOKEN
+  // ============================================
 
   /**
    * Store email verification token
@@ -164,21 +300,26 @@ export class CacheService {
     }
   }
 
+  // ============================================
+  // PASSWORD RESET
+  // ============================================
+
   /**
-   * Store password reset token
+   * Store password reset token (mapped by token, not email)
+   * ✅ IMPROVED METHOD
    */
-  static async storePasswordResetToken(
-    email: string,
+  static async setPasswordResetToken(
     token: string,
-    expirySeconds: number = 3600
+    email: string,
+    expirySeconds: number = 3600 // 1 hour
   ): Promise<void> {
     try {
       const client = redisClient.getClient();
-      const key = `password_reset:${email}`;
+      const key = `password_reset:${token}`;
       
-      await client.setEx(key, expirySeconds, token);
+      await client.setEx(key, expirySeconds, email.toLowerCase());
       
-      logger.info('Password reset token stored', { email });
+      logger.info('Password reset token stored', { email, expirySeconds });
     } catch (error) {
       logger.error('Failed to store password reset token', { error, email });
       throw error;
@@ -186,43 +327,65 @@ export class CacheService {
   }
 
   /**
-   * Verify password reset token
+   * Get email from password reset token
+   * ✅ IMPROVED METHOD
    */
-  static async verifyPasswordResetToken(token: string): Promise<string | null> {
+  static async getPasswordResetToken(token: string): Promise<string | null> {
     try {
       const client = redisClient.getClient();
-      const keys = await client.keys('password_reset:*');
+      const key = `password_reset:${token}`;
       
-      for (const key of keys) {
-        const storedToken = await client.get(key);
-        if (storedToken === token) {
-          const email = key.replace('password_reset:', '');
-          return email;
-        }
-      }
+      const email = await client.get(key);
       
-      return null;
+      logger.debug('Password reset token retrieved', { found: !!email });
+      return email;
     } catch (error) {
-      logger.error('Failed to verify password reset token', { error });
+      logger.error('Failed to get password reset token', { error });
       return null;
     }
   }
 
   /**
    * Delete password reset token
+   * ✅ IMPROVED METHOD
    */
-  static async deletePasswordResetToken(email: string): Promise<void> {
+  static async deletePasswordResetToken(token: string): Promise<void> {
     try {
       const client = redisClient.getClient();
-      const key = `password_reset:${email}`;
+      const key = `password_reset:${token}`;
       
       await client.del(key);
       
-      logger.debug('Password reset token deleted', { email });
+      logger.debug('Password reset token deleted');
     } catch (error) {
-      logger.error('Failed to delete password reset token', { error, email });
+      logger.error('Failed to delete password reset token', { error });
     }
   }
+
+  /**
+   * Store password reset token (legacy method - kept for backward compatibility)
+   * @deprecated Use setPasswordResetToken instead
+   */
+  static async storePasswordResetToken(
+    email: string,
+    token: string,
+    expirySeconds: number = 3600
+  ): Promise<void> {
+    // Redirect to new method with correct parameter order
+    return this.setPasswordResetToken(token, email, expirySeconds);
+  }
+
+  /**
+   * Verify password reset token (legacy method - kept for backward compatibility)
+   * @deprecated Use getPasswordResetToken instead
+   */
+  static async verifyPasswordResetToken(token: string): Promise<string | null> {
+    return this.getPasswordResetToken(token);
+  }
+
+  // ============================================
+  // UTILITY METHODS
+  // ============================================
 
   /**
    * Clear all cache (use with caution)

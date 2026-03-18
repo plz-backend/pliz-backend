@@ -1,123 +1,61 @@
-// src/webhooks/paystack.webhook.ts
-// Payment webhook handler - CRITICAL for MVP
-
-import { Request, Response } from 'express';
+import { Request, Response, Router } from 'express';
 import crypto from 'crypto';
-import donorService from '../modules/Donor/donor.service';
-import { logPaymentWebhook } from '../logger/pliz-events';
+import { DonationService } from '../modules/Donor/services/donation.service';
+import logger from '../config/logger';
 
-/**
- * Verify Paystack webhook signature
- */
-function verifyPaystackSignature(req: Request): boolean {
+function verifySignature(rawBody: Buffer, signature: string): boolean {
   const hash = crypto
-    .createHmac('sha512', process.env.PAYSTACK_SECRET_KEY || '')
-    .update(JSON.stringify(req.body))
+    .createHmac('sha512', process.env.PAYSTACK_SECRET_KEY!)
+    .update(rawBody) // Use Buffer directly
     .digest('hex');
-  
-  const signature = req.headers['x-paystack-signature'];
-  
   return hash === signature;
 }
 
-/**
- * Handle Paystack webhook events
- * POST /api/webhooks/paystack
- */
-export async function handlePaystackWebhook(req: Request, res: Response) {
+async function handleWebhook(req: Request, res: Response) {
   try {
-    // 1. Verify signature
-    if (!verifyPaystackSignature(req)) {
-      req.logger?.warn('Invalid webhook signature');
+    const signature = req.headers['x-paystack-signature'] as string;
+    const rawBody = req.body as Buffer; // req.body is a Buffer from express.raw()
+
+    if (!verifySignature(rawBody, signature)) {
+      logger.warn('Invalid Paystack webhook signature');
       return res.status(401).json({ error: 'Invalid signature' });
     }
-    
-    const event = req.body;
-    
-    logPaymentWebhook({
-      gateway: 'paystack',
-      event: event.event,
-      reference: event.data?.reference,
-      status: event.data?.status,
-    });
-    
-    // 2. Handle different event types
-    switch (event.event) {
-      case 'charge.success':
-        await handleChargeSuccess(event.data, req);
-        break;
-      
-      case 'charge.failed':
-        await handleChargeFailed(event.data, req);
-        break;
-      
-      default:
-        req.logger?.debug('Unhandled webhook event', { event: event.event });
+
+    // ✅ Parse JSON after signature verification
+    const payload = JSON.parse(rawBody.toString());
+    const { event, data } = payload;
+
+    logger.info('Paystack webhook received', { event, reference: data?.reference });
+
+    if (event === 'charge.success') {
+      const reference = data?.reference;
+
+      if (reference) {
+        // processDonation runs all 16 steps:
+        // DB updates + cache invalidation + trust recalc + notifications
+        await DonationService.processDonation({
+          begId: data.metadata.beg_id,
+          donorId: data.metadata.donor_id,
+          amount: data.amount / 100,            // kobo to Naira
+          isAnonymous: data.metadata.is_anonymous || false,
+          paymentReference: reference,
+          paymentMethod: data.channel,
+        });
+
+        logger.info('Webhook: donation processed successfully', { reference });
+      }
     }
-    
-    // 3. Always return 200 to acknowledge receipt
+
+    // Always return 200 so Paystack stops retrying
     return res.status(200).json({ status: 'success' });
-    
+
   } catch (error: any) {
-    req.logger?.error('Webhook processing error', {
-      error: error.message,
-      stack: error.stack,
-    });
-    
-    // Still return 200 to prevent retries on our errors
-    return res.status(200).json({ status: 'error' });
+    logger.error('Paystack webhook error', { error: error.message, stack: error.stack });
+    return res.status(200).json({ status: 'error' }); // Still 200 to stop retries
   }
 }
 
-/**
- * Handle successful charge
- * THIS IS WHERE DONATIONS ARE ACTUALLY CONFIRMED
- */
-async function handleChargeSuccess(data: any, req: Request) {
-  const reference = data.reference;
-  
-  req.logger?.info('Payment successful', {
-    reference,
-    amount: data.amount,
-    customer: data.customer?.email,
-  });
-  
-  // Confirm the donation in database
-  const confirmed = await donorService.confirmDonation(reference);
-  
-  if (!confirmed) {
-    req.logger?.error('Failed to confirm donation', { reference });
-  }
-}
+const router = Router();
+router.post('/', handleWebhook); // Route is /
 
-/**
- * Handle failed charge
- */
-async function handleChargeFailed(data: any, req: Request) {
-  const reference = data.reference;
-  
-  req.logger?.warn('Payment failed', {
-    reference,
-    amount: data.amount,
-    message: data.gateway_response,
-  });
-  
-  // TODO: Update donation status to 'failed'
-  // For MVP, pending donations that never get confirmed will just stay pending
-}
-
-// ============================================
-// WEBHOOK ROUTES
-// ============================================
-
-import { Router } from 'express';
-
-const webhookRouter = Router();
-
-/**
- * Paystack webhook endpoint
- * No authentication middleware - verified by signature
- */
-webhookRouter.post('/paystack', handlePaystackWebhook);
-
-export default webhookRouter;
+export default router;

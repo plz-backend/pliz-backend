@@ -1,6 +1,7 @@
 import jwt, { Secret, SignOptions } from 'jsonwebtoken';
 import crypto from 'crypto';
 import { IJWTPayload } from '../types/user.interface';
+import { UserRole } from '../types/user.interface';
 import logger from '../../../config/logger';
 
 /**
@@ -32,25 +33,26 @@ export class TokenService {
 
   /**
    * Generate Access Token
-   * ========== SESSION: Added optional sessionId parameter ==========
+   * ✅ UPDATED: Added role parameter and made sessionId required
    */
   static generateAccessToken(
     userId: string,
     email: string,
-    sessionId?: string
+    role: UserRole,      // Added role
+    sessionId: string     //  Made required (not optional)
   ): string {
     const payload: Omit<IJWTPayload, 'iat' | 'exp'> = {
       userId,
       email,
+      role,           //  Include role
       type: 'access',
-      sessionId, // ========== SESSION: Include sessionId in token ==========
+      sessionId,
     };
 
     const secret: Secret = this.getJWTSecret();
     
-    // ✅ FIX: Use hardcoded string or type assertion
     const options: SignOptions = {
-      expiresIn: '15m', // ✅ Hardcoded string literal works
+      expiresIn: '15m',
     };
 
     return jwt.sign(payload, secret, options);
@@ -58,25 +60,26 @@ export class TokenService {
 
   /**
    * Generate Refresh Token
-   * ========== SESSION: Added optional sessionId parameter ==========
+   * ✅ UPDATED: Added role parameter and made sessionId required
    */
   static generateRefreshToken(
     userId: string,
     email: string,
-    sessionId?: string
+    role: UserRole,      // ✅ Added role
+    sessionId: string     // ✅ Made required (not optional)
   ): string {
     const payload: Omit<IJWTPayload, 'iat' | 'exp'> = {
       userId,
       email,
+      role,           // ✅ Include role
       type: 'refresh',
-      sessionId, // ========== SESSION: Include sessionId in token ==========
+      sessionId,
     };
 
     const secret: Secret = this.getJWTRefreshSecret();
     
-    
     const options: SignOptions = {
-      expiresIn: '7d', 
+      expiresIn: '7d',
     };
 
     return jwt.sign(payload, secret, options);
@@ -126,6 +129,22 @@ export class TokenService {
    * Generate Email Verification Token
    */
   static generateEmailToken(): string {
+    return crypto.randomBytes(32).toString('hex');
+  }
+
+  /**
+   * Generate Email OTP (6 digits)
+   * NEW METHOD
+   */
+  static generateEmailOTP(): string {
+    return Math.floor(100000 + Math.random() * 900000).toString();
+  }
+
+  /**
+   * Generate Password Reset Token
+   * NEW METHOD
+   */
+  static generatePasswordResetToken(): string {
     return crypto.randomBytes(32).toString('hex');
   }
 

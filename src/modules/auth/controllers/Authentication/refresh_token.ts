@@ -123,6 +123,7 @@ export const refreshToken = async (
     const newAccessToken = TokenService.generateAccessToken(
       userId,
       email,
+      user.role,
       session.id
     );
 
@@ -133,6 +134,7 @@ export const refreshToken = async (
     const userData = {
       email: user.email,
       username: user.username,
+      role: user.role,
       lastLogin: new Date(),
     };
     await CacheService.cacheUserSession(userId, userData, 15 * 60);
@@ -147,7 +149,14 @@ export const refreshToken = async (
       id: user.id,
       username: user.username,
       email: user.email,
+      role: user.role,                              
       isEmailVerified: user.isEmailVerified,
+      emailVerifiedAt: user.emailVerifiedAt,        
+      isProfileComplete: user.isProfileComplete,    
+      isSuspended: user.isSuspended,                
+      isUnderInvestigation: user.isUnderInvestigation,  
+      createdAt: user.createdAt,                    
+      updatedAt: user.updatedAt,
     };
 
     const response: IApiResponse<{

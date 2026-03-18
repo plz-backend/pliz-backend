@@ -1,3 +1,5 @@
+import { User, UserRole, UserProfile } from '@prisma/client';  // Import UserProfile
+
 /**
  * =====================================================
  * AUTHENTICATION TYPES
@@ -5,27 +7,72 @@
  */
 
 /**
- * User interface
+ * Re-export UserRole from Prisma
  */
-export interface IUser {
+export { UserRole } from '@prisma/client';
+
+/**
+ * Re-export User type from Prisma
+ */
+export type IUser = User;
+
+/**
+ * Re-export UserProfile type from Prisma
+ *  ADDED: Use Prisma's generated type
+ */
+export type IUserProfile = UserProfile;
+
+/**
+ * JWT Payload Interface
+ */
+export interface IJWTPayload {
+  userId: string;
+  sessionId: string;
+  email: string;
+  role: UserRole;
+  type: 'access' | 'refresh';
+  iat?: number;
+  exp?: number;
+}
+
+
+/**
+ * User Response Interface (excludes sensitive data)
+ */
+export interface IUserResponse {
   id: string;
   username: string;
   email: string;
-  passwordHash: string;
+  role: UserRole;
   isEmailVerified: boolean;
-  emailVerifiedAt?: Date | null; // Nullable
+  emailVerifiedAt: Date | null;
+  isProfileComplete: boolean;
+  isSuspended: boolean;
+  isUnderInvestigation: boolean;
   createdAt: Date;
   updatedAt: Date;
+  profile?: IUserProfile | null;
 }
 
 /**
- * Registration Request
+ * Registration Request (Public - creates 'user' role only)
  */
 export interface IRegisterRequest {
   username: string;
   email: string;
   password: string;
   confirmPassword: string;
+}
+
+/**
+ * Create Admin User Request (Admin/Superadmin only)
+ */
+export interface ICreateAdminRequest {
+  username: string;
+  email: string;
+  password: string;
+  confirmPassword: string;
+  role: UserRole;  
 }
 
 /**
@@ -37,30 +84,13 @@ export interface ILoginRequest {
 }
 
 
-
-/**typescript/**
- * User response interface (for API responses)
- */
-export interface IUserResponse {
-  id: string;
-  username: string;
-  email: string;
-  isEmailVerified: boolean;
-  emailVerifiedAt?: Date | null; // ← Add this line
-  createdAt?: Date;              // ← Add this line
-  updatedAt?: Date;              // ← Add this line
-}
-
 /**
- * JWT Payload interface
+ * Login Response
  */
-export interface IJWTPayload {
-  userId: string;     
-  email: string;      
-  type: 'access' | 'refresh';
-  sessionId?: string;  
-  iat?: number;
-  exp?: number;
+export interface ILoginResponse {
+  user: IUserResponse;
+  accessToken: string;
+  refreshToken: string;
 }
 
 /**
@@ -100,7 +130,7 @@ export interface IRefreshTokenRequest {
  */
 export interface IApiResponse<T = any> {
   success: boolean;
-  message: string;
+  message?: string;
   data?: T;
   errors?: Array<{
     field: string;
@@ -110,55 +140,42 @@ export interface IApiResponse<T = any> {
 
 /**
  * =====================================================
- * SESSION MANAGEMENT TYPES: For multi-session management
-  * =====================================================
+ * SESSION MANAGEMENT TYPES
+ * =====================================================
  */
 
 /**
- * Session Interface
+ * Session Interface (matches Prisma schema)
  */
 export interface ISession {
   id: string;
   userId: string;
-  deviceInfo: {
-    userAgent: string;
-    browser: string;
-    os: string;
-    device: string;
-  };
-  ipAddress: string;
-  location?: {
-    country?: string;
-    city?: string;
-  };
+  refreshToken: string | null;
   active: boolean;
   lastActive: Date;
-  createdAt: Date;
   expiresAt: Date;
+  userAgent: string | null;
+  browser: string | null;
+  os: string | null;
+  device: string | null;
+  ipAddress: string | null;
+  country: string | null;
+  city: string | null;
+  createdAt: Date;
+  updatedAt: Date;  // Prisma's @updatedAt will handle this automatically
 }
 
 /**
- * Session Response
+ * Session Response (for API) - Extends ISession with formatted fields
  */
-export interface ISessionResponse {
-  id: string;
-  deviceInfo: {
-    userAgent: string;
-    browser: string;
-    os: string;
-    device: string;
-    
-  };
-  ipAddress: string;
-  location?: {
+export interface ISessionResponse extends ISession {
+  deviceInfo: IDeviceInfo;          // Formatted device info
+  formattedIpAddress: string;       // Non-null IP address
+  location?: {                       // Formatted location
     country?: string;
     city?: string;
   };
-  active: boolean;
-  isCurrent?: boolean;
-  lastActive: Date;
-  createdAt: Date;
-  expiresAt: Date;
+  isCurrent?: boolean;              // Is this the current session?
 }
 
 /**
@@ -169,4 +186,47 @@ export interface IDeviceInfo {
   browser: string;
   os: string;
   device: string;
+}
+
+/**
+ * =====================================================
+ * PROFILE TYPES
+ * =====================================================
+ */
+
+/**
+ * Complete Profile Request
+ */
+export interface ICompleteProfileRequest {
+  firstName: string;
+  middleName?: string;
+  lastName: string;
+  phoneNumber: string;
+  dateOfBirth?: Date;
+  gender?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  displayName?: string;
+  isAnonymous?: boolean;
+  agreeToTerms: boolean;
+}
+
+/**
+ * Update Profile Request
+ */
+export interface IUpdateProfileRequest {
+  firstName?: string;
+  middleName?: string;
+  lastName?: string;
+  phoneNumber?: string;
+  dateOfBirth?: Date;
+  gender?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  displayName?: string;
+  isAnonymous?: boolean;
 }

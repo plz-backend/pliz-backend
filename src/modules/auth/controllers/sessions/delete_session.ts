@@ -1,3 +1,4 @@
+
 // ========== SESSION: Logout from a specific session (device) ==========
 
 import { Request, Response } from 'express';
@@ -27,7 +28,10 @@ export const deleteSession = async (
 ): Promise<void> => {
   try {
     const userId = req.user?.userId;
-    const { sessionId } = req.params;
+    // ✅ FIX: Handle string | string[] type
+    const sessionId = typeof req.params.sessionId === 'string' 
+      ? req.params.sessionId 
+      : req.params.sessionId[0];
 
     if (!userId) {
       const response: IApiResponse = {
@@ -35,6 +39,15 @@ export const deleteSession = async (
         message: 'Unauthorized',
       };
       sendResponse(res, 401, response);
+      return;
+    }
+
+    if (!sessionId) {
+      const response: IApiResponse = {
+        success: false,
+        message: 'Session ID is required',
+      };
+      sendResponse(res, 400, response);
       return;
     }
 
