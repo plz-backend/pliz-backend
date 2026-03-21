@@ -486,7 +486,14 @@ export class DonationService {
               user: {
                 select: {
                   username: true,
-                  profile: { select: { displayName: true, isAnonymous: true } },
+                  profile: {
+                    select: {
+                      displayName: true,
+                      isAnonymous: true,
+                      firstName: true,
+                      lastName: true,
+                    },
+                  },
                 },
               },
             },
@@ -524,6 +531,12 @@ export class DonationService {
           recipient_name: d.isAnonymous
             ? undefined
             : d.beg.user.profile?.displayName || d.beg.user.username,
+          recipient_first_name: d.isAnonymous
+            ? undefined
+            : d.beg.user.profile?.firstName ?? undefined,
+          recipient_last_name: d.isAnonymous
+            ? undefined
+            : d.beg.user.profile?.lastName ?? undefined,
           is_funded: d.beg.status === 'funded',
         },
         gratitude: d.gratitudeMessage
