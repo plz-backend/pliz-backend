@@ -37,7 +37,8 @@ export class PaymentService {
           email: data.email,
           amount: Math.round(data.amount * 100), // Naira to kobo
           reference: data.reference,
-          callback_url: `${process.env.BASE_URL}/api/donations/verify`,
+          // callback_url: `${process.env.BASE_URL}/api/donations/verify`,
+          callback_url: `${process.env.FRONTEND_URL}/payment/callback`,
           channels: ['card', 'bank', 'ussd', 'qr', 'mobile_money', 'bank_transfer'],
           metadata: {
             beg_id: data.begId,
