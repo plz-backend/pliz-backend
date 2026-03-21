@@ -89,6 +89,10 @@ export interface IBegResponse {
   username?: string;
   displayName?: string;
   isAnonymous?: boolean;
+  /** Public listing: given name (omitted when anonymous). */
+  firstName?: string;
+  /** Public listing: family name (omitted when anonymous). */
+  lastName?: string;
   title: string;                     
   description: string | null;        
   category: {

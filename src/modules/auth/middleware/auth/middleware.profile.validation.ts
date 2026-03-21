@@ -43,7 +43,7 @@ export const completeProfileValidation = [
     .withMessage('You must agree to terms and conditions')
     .isBoolean()
     .withMessage('Agree to terms must be true or false')
-    .equals('true')
+    .custom((value) => value === true)
     .withMessage('You must agree to terms and conditions'),
 
   body('displayName')

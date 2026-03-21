@@ -11,6 +11,7 @@ import { getDonorMessages, getRecipientMessages } from '../controllers/get_messa
 import { authenticate } from '../../auth/middleware/auth/auth';
 import { checkAccountStatus } from '../../auth/middleware/auth/account_status.middleware';  
 import { generalLimiter } from '../../auth/middleware/auth/rateLimiter';
+import { verifyDonationCallback } from '../controllers/verify_donation';
 
 const router = Router();
 
@@ -25,6 +26,13 @@ const router = Router();
  * @middleware checkAccountStatus - Prevents suspended/investigated users from donating
  */
 router.post('/initialize', authenticate, checkAccountStatus, generalLimiter, initializeDonation);  // checkAccountStatus
+
+/**
+ * @route   GET /api/donations/verify
+ * @desc    Verify a donation (Paystack)
+ * @access  Public
+ */
+router.get('/verify', generalLimiter, verifyDonationCallback);
 
 /**
  * @route   GET /api/donations/my-donations

@@ -252,9 +252,11 @@ export class BegService {
           user: {
             select: {
               username: true,
-              profile: {
+                profile: {
                 select: {
                   displayName: true,
+                  firstName: true,
+                  lastName: true,
                   isAnonymous: true,
                 },
               },
@@ -317,6 +319,8 @@ export class BegService {
                 profile: {
                   select: {
                     displayName: true,
+                    firstName: true,
+                    lastName: true,
                     isAnonymous: true,
                   },
                 },
@@ -357,6 +361,8 @@ export class BegService {
               profile: {
                 select: {
                   displayName: true,
+                  firstName: true,
+                  lastName: true,
                   isAnonymous: true,
                 },
               },
@@ -401,6 +407,8 @@ export class BegService {
                 profile: {
                   select: {
                     displayName: true,
+                    firstName: true,
+                    lastName: true,
                     isAnonymous: true,
                   },
                 },
@@ -547,14 +555,22 @@ export class BegService {
         ? Math.round((Number(beg.amountRaised) / Number(beg.amountRequested)) * 100)
         : 0;
 
+    const isAnonymous = beg.user?.profile?.isAnonymous || false;
+    const firstNameRaw = beg.user?.profile?.firstName?.trim();
+    const lastNameRaw = beg.user?.profile?.lastName?.trim();
+
     return {
       id: beg.id,
       userId: beg.userId,
-      username: beg.user?.profile?.isAnonymous
+      username: isAnonymous
         ? 'Anonymous'
         : beg.user?.profile?.displayName || beg.user.username,
       displayName: beg.user?.profile?.displayName || undefined,
-      isAnonymous: beg.user?.profile?.isAnonymous || false,
+      isAnonymous,
+      firstName:
+        isAnonymous ? undefined : firstNameRaw ? firstNameRaw : undefined,
+      lastName:
+        isAnonymous ? undefined : lastNameRaw ? lastNameRaw : undefined,
       title: beg.title,
       description: beg.description,
       category: {
