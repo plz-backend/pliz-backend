@@ -1,6 +1,10 @@
 import { Request, Response } from 'express';
 import prisma from '../../../../config/database';
-import { IUserResponse, IApiResponse } from '../../types/user.interface';
+import {
+  IUserResponse,
+  IUserStatsSummary,
+  IApiResponse,
+} from '../../types/user.interface';
 import logger from '../../../../config/logger';
 
 /**
@@ -39,11 +43,12 @@ export const getMe = async (
 
     logger.info('Get current user request', { userId });
 
-    // Get user with profile from database
+    // Get user with profile + aggregate stats from database
     const user = await prisma.user.findUnique({
       where: { id: userId },
       include: {
-        profile: true,  // Include profile data
+        profile: true,
+        stats: true,
       },
     });
 
@@ -56,7 +61,54 @@ export const getMe = async (
       sendResponse(res, 404, response);
       return;
     }
-    
+    const weekAgo = new Date();
+    weekAgo.setUTCDate(weekAgo.getUTCDate() - 7);
+
+    const [donationRows, weeklyDonationRows] = await Promise.all([
+      prisma.donation.findMany({
+        where: { donorId: userId, status: 'success' },
+        distinct: ['begId'],
+        select: {
+          begId: true,
+          beg: { select: { userId: true } },
+        },
+      }),
+      prisma.donation.findMany({
+        where: {
+          donorId: userId,
+          status: 'success',
+          createdAt: { gte: weekAgo },
+        },
+        distinct: ['begId'],
+        select: {
+          begId: true,
+          beg: { select: { userId: true } },
+        },
+      }),
+    ]);
+
+    const peopleHelped = new Set(donationRows.map((r) => r.beg.userId)).size;
+    const peopleHelpedThisWeek = new Set(
+      weeklyDonationRows.map((r) => r.beg.userId)
+    ).size;
+
+    // Get stats summary
+    const statsSummary: IUserStatsSummary = user.stats
+      ? {
+          totalDonated: parseFloat(user.stats.totalDonated.toString()),
+          totalReceived: parseFloat(user.stats.totalReceived.toString()),
+          requestsCount: user.stats.requestsCount,
+          peopleHelped,
+          peopleHelpedThisWeek,
+        }
+      : {
+          totalDonated: 0,
+          totalReceived: 0,
+          requestsCount: 0,
+          peopleHelped,
+          peopleHelpedThisWeek,
+        };
+
     // Prepare complete user response (excluding password)
     const userResponse: IUserResponse = {
       id: user.id,
@@ -71,6 +123,7 @@ export const getMe = async (
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
       profile: user.profile || null,  // Include profile data
+      stats: statsSummary, // Include stats data
     };
 
     logger.info('Current user retrieved successfully', { userId: user.id });

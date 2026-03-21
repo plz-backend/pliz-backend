@@ -36,6 +36,17 @@ export interface IJWTPayload {
 }
 
 
+/** Aggregated public stats from `user_stats` + computed fields (GET /me, etc.) */
+export interface IUserStatsSummary {
+  totalDonated: number;
+  totalReceived: number;
+  requestsCount: number;
+  /** Distinct request owners this user has successfully donated to */
+  peopleHelped: number;
+  /** Distinct request owners donated to in the last 7 days (rolling window) */
+  peopleHelpedThisWeek: number;
+}
+
 /**
  * User Response Interface (excludes sensitive data)
  */
@@ -52,6 +63,8 @@ export interface IUserResponse {
   createdAt: Date;
   updatedAt: Date;
   profile?: IUserProfile | null;
+  /** Present on GET /api/auth/me when `stats` relation is loaded */
+  stats?: IUserStatsSummary | null;
 }
 
 /**
