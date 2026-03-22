@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { addBankAccount } from '../controllers/add_bank_account';
+import { resolveBankAccount } from '../controllers/resolve_bank_account';
 import { getBankAccounts } from '../controllers/get_bank_accounts';
 import { getBanks } from '../controllers/get_banks';
 import { getWithdrawals } from '../controllers/get_withdrawals';
@@ -21,6 +22,13 @@ const router = Router();
  * @access  Public
  */
 router.get('/banks', getBanks);
+
+/**
+ * @route   POST /api/withdrawals/resolve-account
+ * @desc    Resolve account name via Paystack (does not save)
+ * @access  Private
+ */
+router.post('/resolve-account', authenticate, resolveBankAccount);
 
 /**
  * @route   POST /api/withdrawals/bank-accounts
