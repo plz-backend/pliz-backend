@@ -1,0 +1,69 @@
+name: Deploy backend
+
+on:
+  push:
+    branches:
+      - staging
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      id-token: write
+
+    environment:
+      name: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
+
+    env:
+      PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      REGION: ${{ vars.GCP_REGION }}
+      GAR_REPOSITORY: ${{ vars.GAR_REPOSITORY }}
+      SERVICE_NAME: ${{ vars.CLOUD_RUN_SERVICE }}
+      IMAGE_NAME: pliz-backend
+      RUNTIME_SERVICE_ACCOUNT: ${{ vars.RUNTIME_SERVICE_ACCOUNT }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.DEPLOYER_SERVICE_ACCOUNT }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Configure Docker auth
+        run: gcloud auth configure-docker $REGION-docker.pkg.dev --quiet
+
+      - name: Build image
+        run: |
+          docker build \
+            -t $REGION-docker.pkg.dev/$PROJECT_ID/$GAR_REPOSITORY/$IMAGE_NAME:${{ github.sha }} \
+            .
+
+      - name: Push image
+        run: |
+          docker push $REGION-docker.pkg.dev/$PROJECT_ID/$GAR_REPOSITORY/$IMAGE_NAME:${{ github.sha }}
+
+      - name: Deploy to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ env.SERVICE_NAME }}
+          region: ${{ env.REGION }}
+          image: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          flags: >-
+            --service-account=${{ env.RUNTIME_SERVICE_ACCOUNT }}
+            --port=8080
+            --set-secrets=DATABASE_URL=${{ vars.SECRET_DATABASE_URL_NAME }}:1
+            --set-secrets=DIRECT_URL=${{ vars.SECRET_DIRECT_URL_NAME }}:1
+            --set-secrets=REDIS_URL=${{ vars.SECRET_REDIS_URL_NAME }}:1
+            --set-secrets=JWT_SECRET=${{ vars.SECRET_JWT_SECRET_NAME }}:1
+            --set-secrets=JWT_ACCESS_EXPIRATION=${{ vars.SECRET_JWT_ACCESS_EXPIRATION_NAME }}:1
+            --set-secrets=JWT_REFRESH_EXPIRATION=${{ vars.SECRET_JWT_REFRESH_EXPIRATION_NAME }}:1
+            --update-env-vars=NODE_ENV=${{ vars.NODE_ENV }}
