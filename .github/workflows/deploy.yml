@@ -60,10 +60,3 @@ jobs:
           flags: >-
             --service-account=${{ env.RUNTIME_SERVICE_ACCOUNT }}
             --port=8080
-            --set-secrets=DATABASE_URL=${{ vars.SECRET_DATABASE_URL_NAME }}:1
-            --set-secrets=DIRECT_URL=${{ vars.SECRET_DIRECT_URL_NAME }}:1
-            --set-secrets=REDIS_URL=${{ vars.SECRET_REDIS_URL_NAME }}:1
-            --set-secrets=JWT_SECRET=${{ vars.SECRET_JWT_SECRET_NAME }}:1
-            --set-secrets=JWT_ACCESS_EXPIRATION=${{ vars.SECRET_JWT_ACCESS_EXPIRATION_NAME }}:1
-            --set-secrets=JWT_REFRESH_EXPIRATION=${{ vars.SECRET_JWT_REFRESH_EXPIRATION_NAME }}:1
-            --update-env-vars=NODE_ENV=${{ vars.NODE_ENV }}
