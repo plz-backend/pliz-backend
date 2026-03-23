@@ -5,7 +5,7 @@ import { UserService } from '../../services/user.service';
 import { TokenService } from '../../services/tokenService';
 import { EmailService } from '../../services/emailService'; 
 import { CacheService } from '../../services/cacheService'; 
-import { TrustScoreService } from '../../../../../src/services/trust_score.service';
+import { TrustScoreService } from '../../../../services/trust_score.service';
 import {
   IRegisterRequest,
   IUserResponse,
