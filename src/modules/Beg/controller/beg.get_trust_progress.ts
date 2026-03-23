@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { TrustScoreService } from '../../../../src/services/trust_score.service';
+import { TrustScoreService } from '../../../services/trust_score.service';
 import { IApiResponse } from '../../auth/types/user.interface';
 import logger from '../../../config/logger';
 
