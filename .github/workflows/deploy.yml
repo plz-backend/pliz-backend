@@ -60,10 +60,29 @@ jobs:
           flags: >-
             --service-account=${{ env.RUNTIME_SERVICE_ACCOUNT }}
             --port=8080
-            --set-secrets=DATABASE_URL=${{ vars.SECRET_DATABASE_URL_NAME }}:1
-            --set-secrets=DIRECT_URL=${{ vars.SECRET_DIRECT_URL_NAME }}:1
-            --set-secrets=REDIS_URL=${{ vars.SECRET_REDIS_URL_NAME }}:1
-            --set-secrets=JWT_SECRET=${{ vars.SECRET_JWT_SECRET_NAME }}:1
-            --set-secrets=JWT_ACCESS_EXPIRATION=${{ vars.SECRET_JWT_ACCESS_EXPIRATION_NAME }}:1
-            --set-secrets=JWT_REFRESH_EXPIRATION=${{ vars.SECRET_JWT_REFRESH_EXPIRATION_NAME }}:1
-            --update-env-vars=NODE_ENV=${{ vars.NODE_ENV }}
+            --set-secrets=DATABASE_URL=DATABASE_URL:1
+            --set-secrets=DIRECT_URL=DIRECT_URL:1
+            --set-secrets=REDIS_URL=REDIS_URL:1
+            --set-secrets=REDIS_HOST=REDIS_HOST:1
+            --set-secrets=REDIS_PORT=REDIS_PORT:1
+            --set-secrets=BASE_URL=BASE_URL:1
+            --set-secrets=FRONTEND_URL=FRONTEND_URL:1
+            --set-secrets=ALLOWED_ORIGINS=ALLOWED_ORIGINS:1
+            --set-secrets=EMAIL_HOST=EMAIL_HOST:1
+            --set-secrets=EMAIL_USER=EMAIL_USER:1
+            --set-secrets=EMAIL_PASSWORD=EMAIL_PASSWORD:1
+            --set-secrets=EMAIL_FROM=EMAIL_FROM:1
+            --set-secrets=EMAIL_PORT=EMAIL_PORT:1
+            --set-secret=EMAIL_TOKEN_EXPIRY_HOURS=EMAIL_TOKEN_EXPIRY_HOURS:1
+            --set-secrets=CACHE_EMAIL_TOKEN_TTL=CACHE_EMAIL_TOKEN_TTL:1
+            --set-secrets=CACHE_COUNTRIES_TTL=CACHE_COUNTRIES_TTL:1
+            --set-secrets=CACHE_OTP_TTL=CACHE_OTP_TTL:1
+            --set-secrets=CACHE_USER_SESSION_TTL=CACHE_USER_SESSION_TTL:1
+            --set-secrets=RATE_LIMIT_MAX_REQUESTS=RATE_LIMIT_MAX_REQUESTS:1
+            --set-secrets=RATE_LIMIT_WINDOW_MS=RATE_LIMIT_WINDOW_MS:1
+            --set-secrets=PAYSTACK_SECRET_KEY=PAYSTACK_SECRET_KEY:1
+            --set-secrets=PAYSTACK_PUBLIC_KEY=PAYSTACK_PUBLIC_KEY:1
+            --set-secrets=JWT_SECRET=JWT_SECRET:1
+            --set-secrets=JWT_ACCESS_EXPIRATION=JWT_ACCESS_EXPIRATION:1
+            --set-secrets=JWT_REFRESH_EXPIRATION=JWT_REFRESH_EXPIRATION:1
+            --set-secrets=NODE_ENV=NODE_ENV:1
