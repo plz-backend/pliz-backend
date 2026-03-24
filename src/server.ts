@@ -51,13 +51,13 @@ const startServer = async (): Promise<void> => {
 ✅ Server started successfully
 
 📍 Port:          ${PORT}
-🌐 API:           http://localhost:${PORT}/api
-💚 Health:        http://localhost:${PORT}/health
-🔐 Auth:          http://localhost:${PORT}/api/auth
-📱 Sessions:      http://localhost:${PORT}/api/sessions
-💰 Donations:     http://localhost:${PORT}/api/donations
-🔔 Notifications: http://localhost:${PORT}/api/notifications
-🪝 Webhook:       http://localhost:${PORT}/webhooks/paystack
+🌐 API:           ${process.env.BASE_URL}:${PORT}/api
+💚 Health:        ${process.env.BASE_URL}:${PORT}/health
+🔐 Auth:          ${process.env.BASE_URL}:${PORT}/api/auth
+📱 Sessions:      ${process.env.BASE_URL}:${PORT}/api/sessions
+💰 Donations:     ${process.env.BASE_URL}:${PORT}/api/donations
+🔔 Notifications: ${process.env.BASE_URL}:${PORT}/api/notifications
+🪝 Webhook:       ${process.env.BASE_URL}:${PORT}/webhooks/paystack
 
 Environment: ${process.env.NODE_ENV || 'development'}
 Database:    PostgreSQL

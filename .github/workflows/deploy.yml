@@ -63,6 +63,9 @@ jobs:
             --set-secrets=DATABASE_URL=${{ vars.SECRET_DATABASE_URL_NAME }}:1
             --set-secrets=DIRECT_URL=${{ vars.SECRET_DIRECT_URL_NAME }}:1
             --set-secrets=REDIS_URL=${{ vars.SECRET_REDIS_URL_NAME }}:1
+            --set-secrets=EMAIL_HOST=${{ vars.SECRET_EMAIL_HOST_NAME }}:1
+            --set-secrets=BASE_URL=${{ vars.SECRET_BASE_URL_NAME }}:1
+            --set-secrets=FRONTEND_URL=${{ vars.SECRET_FRONTEND_URL_NAME }}:1
             --set-secrets=JWT_SECRET=${{ vars.SECRET_JWT_SECRET_NAME }}:1
             --set-secrets=JWT_ACCESS_EXPIRATION=${{ vars.SECRET_JWT_ACCESS_EXPIRATION_NAME }}:1
             --set-secrets=JWT_REFRESH_EXPIRATION=${{ vars.SECRET_JWT_REFRESH_EXPIRATION_NAME }}:1
