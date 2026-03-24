@@ -4,6 +4,7 @@ import { Request, Response } from 'express';
 import { CacheService } from '../../services/cacheService';
 import logger from '../../../../config/logger';
 import { IApiResponse } from '../../types/user.interface';
+import { clearRefreshTokenCookie } from '../../utils/refresh_cookie';
 
 
 /**
@@ -66,6 +67,8 @@ export const logoutAll = async (
       userId,
       sessionsDeactivated: sessions.length,
     });
+
+    clearRefreshTokenCookie(res);
 
     const response: IApiResponse = {
       success: true,

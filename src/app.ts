@@ -1,4 +1,5 @@
 import express, { Express, Request, Response } from 'express';
+import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
@@ -35,6 +36,8 @@ export const createApp = (): Express => {
       credentials: true,
     })
   );
+
+  app.use(cookieParser());
 
   // Body parsing
   app.use(express.json());

@@ -42,7 +42,15 @@ export class EmailService {
         return;
       }
 
-      const verificationUrl = `${process.env.BASE_URL}/api/auth/verify-email?token=${token}`;
+      const frontendBase = (
+        process.env.FRONTEND_URL ||
+        process.env.EXPO_PUBLIC_FRONTEND_URL ||
+        ''
+      ).replace(/\/$/, '');
+      const apiBase = (process.env.BASE_URL || '').replace(/\/$/, '');
+      const verificationUrl = frontendBase
+        ? `${frontendBase}/verify-email?token=${encodeURIComponent(token)}`
+        : `${apiBase}/api/auth/verify-email?token=${encodeURIComponent(token)}`;
 
       const mailOptions = {
         from: `"PLIZ App" <${process.env.EMAIL_FROM || process.env.EMAIL_USER}>`,

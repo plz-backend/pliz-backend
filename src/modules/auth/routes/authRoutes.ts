@@ -13,6 +13,7 @@ import { logoutAll } from '../controllers/Authentication/logout_all';
 import { changePassword } from '../controllers/Authentication/change_password';
 import { getMe } from '../controllers/Authentication/get_me';
 import { refreshToken } from '../controllers/Authentication/refresh_token';
+import { invalidateRefreshCookie } from '../controllers/Authentication/invalidate_refresh_cookie';
 import { createAdminUser } from '../controllers/Authentication/create_admin_user';
 
 // Middleware
@@ -80,6 +81,17 @@ router.post(
   refreshTokenValidation,
   validateRequest,
   refreshToken
+);
+
+/**
+ * @route   POST /api/auth/invalidate-refresh-cookie
+ * @desc    Revoke session from httpOnly cookie (web)
+ * @access  Public
+ */
+router.post(
+  '/invalidate-refresh-cookie',
+  generalLimiter,
+  invalidateRefreshCookie
 );
 
 /**

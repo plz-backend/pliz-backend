@@ -250,11 +250,14 @@ export class CacheService {
   ): Promise<void> {
     try {
       const client = redisClient.getClient();
-      const key = `email_token:${email}`;
-      
+      const emailLower = email.toLowerCase();
+      const key = `email_token:${emailLower}`;
+      const tokenKey = `email_verify_token:${token}`;
+
       await client.setEx(key, expirySeconds, token);
-      
-      logger.info('Email verification token stored', { email });
+      await client.setEx(tokenKey, expirySeconds, emailLower);
+
+      logger.info('Email verification token stored', { email: emailLower });
     } catch (error) {
       logger.error('Failed to store email token', { error, email });
       throw error;
@@ -262,21 +265,24 @@ export class CacheService {
   }
 
   /**
-   * Verify email token
+   * Resolve email from verification token (O(1); avoids Redis KEYS on serverless hosts).
    */
   static async verifyEmailToken(token: string): Promise<string | null> {
     try {
       const client = redisClient.getClient();
+      const byToken = await client.get(`email_verify_token:${token}`);
+      if (byToken) {
+        return byToken;
+      }
+
       const keys = await client.keys('email_token:*');
-      
       for (const key of keys) {
         const storedToken = await client.get(key);
         if (storedToken === token) {
-          const email = key.replace('email_token:', '');
-          return email;
+          return key.replace('email_token:', '');
         }
       }
-      
+
       return null;
     } catch (error) {
       logger.error('Failed to verify email token', { error });
@@ -290,10 +296,14 @@ export class CacheService {
   static async deleteEmailToken(email: string): Promise<void> {
     try {
       const client = redisClient.getClient();
-      const key = `email_token:${email}`;
-      
+      const key = `email_token:${email.toLowerCase()}`;
+      const storedToken = await client.get(key);
+
       await client.del(key);
-      
+      if (storedToken) {
+        await client.del(`email_verify_token:${storedToken}`);
+      }
+
       logger.debug('Email token deleted', { email });
     } catch (error) {
       logger.error('Failed to delete email token', { error, email });
