@@ -85,4 +85,4 @@ jobs:
             --set-secrets=JWT_SECRET=JWT_SECRET:1
             --set-secrets=JWT_ACCESS_EXPIRATION=JWT_ACCESS_EXPIRATION:1
             --set-secrets=JWT_REFRESH_EXPIRATION=JWT_REFRESH_EXPIRATION:1
-            --set-secrets=NODE_ENV=NODE_ENV:1
+            --set-secrets=NODE_ENV=development
