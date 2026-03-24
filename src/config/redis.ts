@@ -9,9 +9,7 @@ class RedisClient {
   private isConnected: boolean = false;
 
   constructor() {
-    const redisUrl = `redis://${process.env.REDIS_HOST || 'localhost'}:${
-      process.env.REDIS_PORT || 6379
-    }`;
+    const redisUrl = process.env.REDIS_URL;
 
     this.client = createClient({
       url: redisUrl,
