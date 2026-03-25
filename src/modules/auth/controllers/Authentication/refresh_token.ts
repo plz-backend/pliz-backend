@@ -4,7 +4,7 @@ import { Request, Response } from 'express';
 import { UserService } from '../../services/user.service';
 import { SessionService } from '../../services/session.service';
 import { IUserResponse, IApiResponse } from '../../types/user.interface';
-import { REFRESH_TOKEN_COOKIE_NAME } from '../../utils/refresh_cookie';
+import { getRefreshTokenFromRequest } from '../../utils/refresh_cookie';
 import logger from '../../../../config/logger';
 
 /**
@@ -28,14 +28,7 @@ export const refreshToken = async (
   res: Response
 ): Promise<void> => {
   try {
-    const bodyToken =
-      typeof req.body?.refreshToken === 'string'
-        ? req.body.refreshToken.trim()
-        : '';
-    const cookieToken = req.cookies?.[REFRESH_TOKEN_COOKIE_NAME];
-    const token =
-      bodyToken ||
-      (typeof cookieToken === 'string' ? cookieToken : '');
+    const token = getRefreshTokenFromRequest(req);
 
     if (!token) {
       const response: IApiResponse = {

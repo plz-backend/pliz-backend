@@ -29,10 +29,18 @@ export const createApp = (): Express => {
   // Security middleware
   app.use(helmet());
 
-  // CORS
+  // CORS — comma-separated FRONTEND_URL for staging + production web origins (credentialed cookies)
+  const corsOrigins = process.env.FRONTEND_URL
+    ? process.env.FRONTEND_URL.split(',').map((s) => s.trim()).filter(Boolean)
+    : [];
   app.use(
     cors({
-      origin: process.env.FRONTEND_URL,
+      origin:
+        corsOrigins.length === 0
+          ? undefined
+          : corsOrigins.length === 1
+            ? corsOrigins[0]
+            : corsOrigins,
       credentials: true,
     })
   );

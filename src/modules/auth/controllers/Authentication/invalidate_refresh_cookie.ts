@@ -4,7 +4,7 @@ import { SessionService } from '../../services/session.service';
 import { TokenService } from '../../services/tokenService';
 import {
   clearRefreshTokenCookie,
-  REFRESH_TOKEN_COOKIE_NAME,
+  getRefreshTokenFromRequest,
 } from '../../utils/refresh_cookie';
 import { IApiResponse } from '../../types/user.interface';
 import logger from '../../../../config/logger';
@@ -19,10 +19,10 @@ export const invalidateRefreshCookie = async (
   res: Response
 ): Promise<void> => {
   try {
-    const token = req.cookies?.[REFRESH_TOKEN_COOKIE_NAME];
+    const token = getRefreshTokenFromRequest(req);
     clearRefreshTokenCookie(res);
 
-    if (!token || typeof token !== 'string') {
+    if (!token) {
       const response: IApiResponse = {
         success: true,
         message: 'OK',
