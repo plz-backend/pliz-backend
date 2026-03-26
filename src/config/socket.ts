@@ -10,7 +10,9 @@ const connectedUsers = new Map<string, string>();
 export const initializeSocket = (server: HTTPServer): SocketIOServer => {
   io = new SocketIOServer(server, {
     cors: {
-      origin: process.env.FRONTEND_URL || '*',
+      origin: process.env.ALLOWED_ORIGINS
+      ? process.env.ALLOWED_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean)
+      : [],
       methods: ['GET', 'POST'],
     },
   });
