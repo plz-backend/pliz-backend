@@ -3,9 +3,6 @@ import prisma from '../../../../config/database';
 import { IApiResponse } from '../../types/user.interface';
 import logger from '../../../../config/logger';
 
-/**
- * Helper to send response
- */
 const sendResponse = <T = any>(
   res: Response,
   statusCode: number,
@@ -39,29 +36,37 @@ export const getProfile = async (
         createdAt: true,
         profile: {
           select: {
+            // Step 1: Personal Identity
             firstName: true,
             middleName: true,
             lastName: true,
-            phoneNumber: true,
             displayName: true,
+            dateOfBirth: true,
+            gender: true,
+            // Step 2: Contact
+            phoneNumber: true,
+            // Step 3: Location
+            state: true,
+            city: true,
+            address: true,       // ← added
+            // Step 4: Privacy
             isAnonymous: true,
+            // Step 5: Legal
             agreeToTerms: true,
+            // System
             createdAt: true,
+            updatedAt: true,     // ← added
           },
         },
       },
     });
 
     if (!user) {
-      const response: IApiResponse = {
-        success: false,
-        message: 'User not found',
-      };
-      sendResponse(res, 404, response);
+      sendResponse(res, 404, { success: false, message: 'User not found' });
       return;
     }
 
-    const response: IApiResponse = {
+    sendResponse(res, 200, {
       success: true,
       message: 'Profile retrieved successfully',
       data: {
@@ -71,23 +76,16 @@ export const getProfile = async (
           email: user.email,
           isEmailVerified: user.isEmailVerified,
           isProfileComplete: user.isProfileComplete,
+          createdAt: user.createdAt,
           profile: user.profile,
         },
       },
-    };
-
-    sendResponse(res, 200, response);
+    });
   } catch (error: any) {
     logger.error('Get profile error', {
       error: error.message,
       stack: error.stack,
     });
-
-    const response: IApiResponse = {
-      success: false,
-      message: 'Failed to retrieve profile',
-    };
-
-    sendResponse(res, 500, response);
+    sendResponse(res, 500, { success: false, message: 'Failed to retrieve profile' });
   }
 };

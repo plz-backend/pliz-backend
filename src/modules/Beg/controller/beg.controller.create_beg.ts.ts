@@ -24,7 +24,7 @@ export const createBeg = async (
 ): Promise<void> => {
   try {
     const userId = (req as any).user?.userId;
-    const { category, title, description, amountRequested, mediaType, mediaUrl } = req.body; // ✅ Added description
+    const { category, description, amountRequested, mediaType, mediaUrl } = req.body; // ← title removed
 
     logger.info('Create beg request', {
       userId,
@@ -37,18 +37,7 @@ export const createBeg = async (
     // BASIC VALIDATION
     // ============================================
     if (!category) {
-      sendResponse(res, 400, {
-        success: false,
-        message: 'Category is required',
-      });
-      return;
-    }
-
-    if (!title) {
-      sendResponse(res, 400, {
-        success: false,
-        message: 'Title is required',
-      });
+      sendResponse(res, 400, { success: false, message: 'Category is required' });
       return;
     }
 
@@ -61,19 +50,15 @@ export const createBeg = async (
     }
 
     if (amountRequested < 100) {
-      sendResponse(res, 400, {
-        success: false,
-        message: 'Minimum amount is ₦100',
-      });
+      sendResponse(res, 400, { success: false, message: 'Minimum amount is ₦100' });
       return;
     }
 
     // ============================================
     // CATEGORY LOOKUP
     // ============================================
-    // Fast Redis lookup (no database hit)
     const categoryId = await CategoryService.getCategoryIdByName(category);
-    
+
     if (!categoryId) {
       sendResponse(res, 400, {
         success: false,
@@ -87,8 +72,7 @@ export const createBeg = async (
     // ============================================
     const data: ICreateBegRequest = {
       categoryId,
-      title: title.trim(),
-      description: description ? description.trim() : null, //  NEW
+      description: description ? description.trim() : null, // max 40 words / 300 chars
       amountRequested,
       mediaType,
       mediaUrl,
@@ -104,21 +88,20 @@ export const createBeg = async (
 
     sendResponse(res, 201, {
       success: true,
-      message: beg.approved 
-        ? 'Beg created successfully! It is now live.' 
+      message: beg.approved
+        ? 'Beg created successfully! It is now live.'
         : 'Beg created successfully and pending approval.',
       data: {
         beg: {
           id: beg.id,
-          title: beg.title,
-          description: beg.description,        
+          description: beg.description,        // ← title removed
           categoryId: beg.categoryId,
           amountRequested: beg.amountRequested,
           amountRaised: beg.amountRaised,
           status: beg.status,
-          approved: beg.approved,              
-          mediaType: beg.mediaType,           
-          mediaUrl: beg.mediaUrl,    
+          approved: beg.approved,
+          mediaType: beg.mediaType,
+          mediaUrl: beg.mediaUrl,
           expiresAt: beg.expiresAt,
           createdAt: beg.createdAt,
         },
@@ -131,14 +114,13 @@ export const createBeg = async (
       userId: (req as any).user?.userId,
     });
 
-    //  Return appropriate status codes for different errors
-    const statusCode = error.message.includes('Title') || 
-                       error.message.includes('Description') ||
-                       error.message.includes('cooldown') ||
-                       error.message.includes('limit') ||
-                       error.message.includes('tier')
-                       ? 400 
-                       : 500;
+    const statusCode =
+      error.message.includes('Description') ||
+      error.message.includes('cooldown') ||
+      error.message.includes('limit') ||
+      error.message.includes('tier')
+        ? 400
+        : 500;
 
     sendResponse(res, statusCode, {
       success: false,

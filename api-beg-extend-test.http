@@ -1,0 +1,236 @@
+# ============================================
+# BEG EXTEND API TESTS
+# ============================================
+# Prerequisites:
+# - Install REST Client extension in VS Code
+# - Set @baseUrl and @token before running
+# ============================================
+
+@baseUrl = http://localhost:3000/api
+@token = Bearer YOUR_JWT_TOKEN_HERE
+@begId = YOUR_BEG_ID_HERE
+
+
+# ============================================
+# 1. GET EXPIRING BEGS (Popup trigger check)
+# ============================================
+
+### 1.1 No begs expiring — should return hasExpiringBegs: false
+GET {{baseUrl}}/begs/expiring
+Authorization: {{token}}
+Content-Type: application/json
+
+###
+
+### 1.2 Has expiring begs — should return hasExpiringBegs: true with availableExtensions
+GET {{baseUrl}}/begs/expiring
+Authorization: {{token}}
+Content-Type: application/json
+
+###
+
+
+# ============================================
+# 2. EXTEND BEG - VALID CASES
+# ============================================
+
+### 2.1 Extend from 24h → 72h
+PUT {{baseUrl}}/begs/{{begId}}/extend
+Authorization: {{token}}
+Content-Type: application/json
+
+{
+  "expiryHours": 72
+}
+
+###
+
+### 2.2 Extend from 24h → 168h (7 days)
+PUT {{baseUrl}}/begs/{{begId}}/extend
+Authorization: {{token}}
+Content-Type: application/json
+
+{
+  "expiryHours": 168
+}
+
+###
+
+### 2.3 Extend from 72h → 168h (7 days)
+PUT {{baseUrl}}/begs/{{begId}}/extend
+Authorization: {{token}}
+Content-Type: application/json
+
+{
+  "expiryHours": 168
+}
+
+###
+
+
+# ============================================
+# 3. EXTEND BEG - ERROR CASES
+# ============================================
+
+### 3.1 Missing expiryHours — should return 400
+PUT {{baseUrl}}/begs/{{begId}}/extend
+Authorization: {{token}}
+Content-Type: application/json
+
+{}
+
+###
+
+### 3.2 Invalid expiryHours (48 not allowed) — should return 400
+PUT {{baseUrl}}/begs/{{begId}}/extend
+Authorization: {{token}}
+Content-Type: application/json
+
+{
+  "expiryHours": 48
+}
+
+###
+
+### 3.3 Downgrade attempt (beg is 72h, trying 24h) — should return 400
+PUT {{baseUrl}}/begs/{{begId}}/extend
+Authorization: {{token}}
+Content-Type: application/json
+
+{
+  "expiryHours": 24
+}
+
+###
+
+### 3.4 Invalid beg ID format — should return 400
+PUT {{baseUrl}}/begs/invalid-beg-id/extend
+Authorization: {{token}}
+Content-Type: application/json
+
+{
+  "expiryHours": 72
+}
+
+###
+
+### 3.5 Beg does not exist — should return 404
+PUT {{baseUrl}}/begs/00000000-0000-0000-0000-000000000000/extend
+Authorization: {{token}}
+Content-Type: application/json
+
+{
+  "expiryHours": 72
+}
+
+###
+
+### 3.6 No auth token — should return 401
+PUT {{baseUrl}}/begs/{{begId}}/extend
+Content-Type: application/json
+
+{
+  "expiryHours": 72
+}
+
+###
+
+### 3.7 Another user's beg — should return 403
+PUT {{baseUrl}}/begs/ANOTHER_USERS_BEG_ID/extend
+Authorization: {{token}}
+Content-Type: application/json
+
+{
+  "expiryHours": 72
+}
+
+###
+
+### 3.8 Cancelled beg — should return 400
+PUT {{baseUrl}}/begs/CANCELLED_BEG_ID/extend
+Authorization: {{token}}
+Content-Type: application/json
+
+{
+  "expiryHours": 72
+}
+
+###
+
+### 3.9 Expired beg — should return 400
+PUT {{baseUrl}}/begs/EXPIRED_BEG_ID/extend
+Authorization: {{token}}
+Content-Type: application/json
+
+{
+  "expiryHours": 72
+}
+
+###
+
+### 3.10 Beg already at max 168h — should return 400
+PUT {{baseUrl}}/begs/MAX_EXPIRY_BEG_ID/extend
+Authorization: {{token}}
+Content-Type: application/json
+
+{
+  "expiryHours": 168
+}
+
+###
+
+
+# ============================================
+# 4. FULL FLOW TEST
+# ============================================
+
+### Step 1: Create a new beg with 24h expiry
+POST {{baseUrl}}/begs
+Authorization: {{token}}
+Content-Type: application/json
+
+{
+  "category": "food",
+  "description": "Need help with food for the week",
+  "amountRequested": 5000,
+  "expiryHours": 24,
+  "mediaType": "text"
+}
+
+###
+
+### Step 2: Check expiring begs (poll this in production)
+GET {{baseUrl}}/begs/expiring
+Authorization: {{token}}
+Content-Type: application/json
+
+###
+
+### Step 3: User selects 72h from popup
+PUT {{baseUrl}}/begs/{{begId}}/extend
+Authorization: {{token}}
+Content-Type: application/json
+
+{
+  "expiryHours": 72
+}
+
+###
+
+### Step 4: User selects 7 days from popup
+PUT {{baseUrl}}/begs/{{begId}}/extend
+Authorization: {{token}}
+Content-Type: application/json
+
+{
+  "expiryHours": 168
+}
+
+###
+
+### Step 5: Verify beg is updated
+GET {{baseUrl}}/begs/{{begId}}
+Authorization: {{token}}
+Content-Type: application/json
+
+###

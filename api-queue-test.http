@@ -1,0 +1,400 @@
+###############################################
+# PLZ APP - QUEUE HEALTH TEST SUITE
+# BullMQ Queue Monitoring & Admin Tests
+###############################################
+@baseUrl = http://localhost:3000
+@adminEmail = admin@plz.app
+@adminPassword = Admin123!@#
+
+
+###############################################
+# SECTION 0: SETUP - LOGIN ADMIN
+###############################################
+
+### 0.1 Login Admin
+# @name loginAdmin
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{adminEmail}}",
+  "password": "{{adminPassword}}"
+}
+# ✅ Expected: 200 OK
+# Save: adminToken = response.data.accessToken
+
+###
+
+
+###############################################
+# SECTION 1: SERVER HEALTH CHECK
+###############################################
+
+### 1.1 Basic Health Check (includes queue health)
+GET {{baseUrl}}/health
+# ✅ Expected: 200 OK
+# {
+#   "success": true,
+#   "message": "Server is healthy",
+#   "data": {
+#     "status": "healthy",
+#     "uptime": 123.45,
+#     "timestamp": "2026-04-02T...",
+#     "queues": [
+#       { "name": "donations", "waiting": 0, "active": 0, "completed": 0, "failed": 0 },
+#       { "name": "emails", "waiting": 0, "active": 0, "completed": 0, "failed": 0 },
+#       { "name": "withdrawals", "waiting": 0, "active": 0, "completed": 0, "failed": 0 },
+#       { "name": "trust_score", "waiting": 0, "active": 0, "completed": 0, "failed": 0 },
+#       { "name": "beg_expiry", "waiting": 0, "active": 0, "completed": 0, "failed": 0 }
+#     ]
+#   }
+# }
+
+###
+
+### 1.2 Root Endpoint Check
+GET {{baseUrl}}/
+# ✅ Expected: 200 OK
+# {
+#   "success": true,
+#   "message": "Plz API Server",
+#   "data": {
+#     "endpoints": {
+#       "queues": "/api/admin/queues/health"
+#     },
+#     "features": [
+#       "BullMQ Job Queues",
+#       ...
+#     ]
+#   }
+# }
+
+###
+
+
+###############################################
+# SECTION 2: QUEUE HEALTH (ADMIN ONLY)
+###############################################
+
+### 2.1 Get Queue Health - All Queues
+GET {{baseUrl}}/api/admin/queues/health
+Authorization: Bearer {{loginAdmin.response.body.data.accessToken}}
+# ✅ Expected: 200 OK
+# {
+#   "success": true,
+#   "message": "Queue health retrieved",
+#   "data": {
+#     "queues": [
+#       { "name": "donations",   "waiting": 0, "active": 0, "completed": 0, "failed": 0, "delayed": 0 },
+#       { "name": "withdrawals", "waiting": 0, "active": 0, "completed": 0, "failed": 0, "delayed": 0 },
+#       { "name": "emails",      "waiting": 0, "active": 0, "completed": 0, "failed": 0, "delayed": 0 },
+#       { "name": "trust_score", "waiting": 0, "active": 0, "completed": 0, "failed": 0, "delayed": 0 },
+#       { "name": "beg_expiry",  "waiting": 0, "active": 0, "completed": 0, "failed": 0, "delayed": 0 }
+#     ]
+#   }
+# }
+
+###
+
+### 2.2 Get Queue Health - No Auth (SHOULD FAIL)
+GET {{baseUrl}}/api/admin/queues/health
+# ❌ Expected: 401 - Unauthorized
+
+###
+
+### 2.3 Get Queue Health - Regular User Token (SHOULD FAIL)
+# Use a non-admin user token here
+GET {{baseUrl}}/api/admin/queues/health
+Authorization: Bearer REGULAR_USER_TOKEN
+# ❌ Expected: 403 - Forbidden (not an admin)
+
+###
+
+
+###############################################
+# SECTION 3: DONATION QUEUE
+# Trigger donation flow and watch queue fill up
+###############################################
+
+### 3.1 Login Regular User
+# @name loginUser
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "impactliveconsult@gmail.com",
+  "password": "Test123!@#"
+}
+# ✅ Expected: 200 OK
+
+###
+
+### 3.2 Check Queue Before Donation
+GET {{baseUrl}}/api/admin/queues/health
+Authorization: Bearer {{loginAdmin.response.body.data.accessToken}}
+# ✅ donations.waiting should be 0
+
+###
+
+### 3.3 Simulate Paystack Webhook (triggers donation queue)
+# This simulates what Paystack sends after a successful payment
+# In real testing, use Paystack test cards
+POST {{baseUrl}}/webhooks/paystack
+Content-Type: application/json
+x-paystack-signature: TEST_SIGNATURE
+
+{
+  "event": "charge.success",
+  "data": {
+    "reference": "TEST_REF_001",
+    "amount": 500000,
+    "channel": "card",
+    "metadata": {
+      "beg_id": "VALID_BEG_UUID",
+      "donor_id": "VALID_DONOR_UUID",
+      "is_anonymous": false
+    }
+  }
+}
+# ✅ Expected: 200 - { "status": "success" }
+# Job should be added to donations queue
+
+###
+
+### 3.4 Check Queue After Webhook
+GET {{baseUrl}}/api/admin/queues/health
+Authorization: Bearer {{loginAdmin.response.body.data.accessToken}}
+# ✅ donations.waiting should be 1 (or completed: 1 if worker processed it fast)
+
+###
+
+### 3.5 Check Queue After Processing (wait a few seconds then run)
+GET {{baseUrl}}/api/admin/queues/health
+Authorization: Bearer {{loginAdmin.response.body.data.accessToken}}
+# ✅ donations.completed should be 1
+# ✅ donations.waiting should be 0
+# ✅ donations.failed should be 0
+
+###
+
+
+###############################################
+# SECTION 4: WITHDRAWAL QUEUE
+###############################################
+
+### 4.1 Check Queue Before Withdrawal
+GET {{baseUrl}}/api/admin/queues/health
+Authorization: Bearer {{loginAdmin.response.body.data.accessToken}}
+# ✅ withdrawals.waiting should be 0
+
+###
+
+### 4.2 Request Withdrawal (triggers withdrawal queue)
+POST {{baseUrl}}/api/withdrawals/request
+Authorization: Bearer {{loginUser.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "begId": "FUNDED_BEG_UUID"
+}
+# ✅ Expected: 200 OK
+# Job should be added to withdrawals queue
+
+###
+
+### 4.3 Check Queue After Withdrawal Request
+GET {{baseUrl}}/api/admin/queues/health
+Authorization: Bearer {{loginAdmin.response.body.data.accessToken}}
+# ✅ withdrawals.waiting or withdrawals.active should be > 0
+
+###
+
+### 4.4 Check Queue After Processing
+GET {{baseUrl}}/api/admin/queues/health
+Authorization: Bearer {{loginAdmin.response.body.data.accessToken}}
+# ✅ withdrawals.completed should be 1
+# ✅ withdrawals.failed should be 0
+
+###
+
+
+###############################################
+# SECTION 5: EMAIL QUEUE
+###############################################
+
+### 5.1 Check Email Queue Before
+GET {{baseUrl}}/api/admin/queues/health
+Authorization: Bearer {{loginAdmin.response.body.data.accessToken}}
+# ✅ emails.waiting should be 0
+
+###
+
+### 5.2 Trigger Email (withdrawal success sends email to queue)
+# Run Section 4.2 first then check email queue
+GET {{baseUrl}}/api/admin/queues/health
+Authorization: Bearer {{loginAdmin.response.body.data.accessToken}}
+# ✅ emails.completed should increment after withdrawal completes
+
+###
+
+
+###############################################
+# SECTION 6: BEG EXPIRY QUEUE (CRON)
+###############################################
+
+### 6.1 Check Beg Expiry Queue
+GET {{baseUrl}}/api/admin/queues/health
+Authorization: Bearer {{loginAdmin.response.body.data.accessToken}}
+# ✅ beg_expiry queue should show delayed job (scheduled hourly)
+# {
+#   "name": "beg_expiry",
+#   "waiting": 0,
+#   "active": 0,
+#   "completed": 0,
+#   "failed": 0,
+#   "delayed": 1    ← the hourly cron job
+# }
+
+###
+
+
+###############################################
+# SECTION 7: FAILED JOBS (ERROR SCENARIOS)
+###############################################
+
+### 7.1 Trigger Donation With Invalid Beg ID
+# This will cause the donation job to fail
+POST {{baseUrl}}/webhooks/paystack
+Content-Type: application/json
+x-paystack-signature: TEST_SIGNATURE
+
+{
+  "event": "charge.success",
+  "data": {
+    "reference": "TEST_REF_FAIL_001",
+    "amount": 500000,
+    "channel": "card",
+    "metadata": {
+      "beg_id": "00000000-0000-0000-0000-000000000000",
+      "donor_id": "00000000-0000-0000-0000-000000000000",
+      "is_anonymous": false
+    }
+  }
+}
+# ✅ Webhook returns 200 (Paystack doesn't retry)
+# ❌ Job will fail in the queue after 3 attempts
+
+###
+
+### 7.2 Check Failed Jobs After Invalid Donation
+# Wait ~10 seconds for retries to exhaust then check
+GET {{baseUrl}}/api/admin/queues/health
+Authorization: Bearer {{loginAdmin.response.body.data.accessToken}}
+# ⚠️ donations.failed should be 1
+# This is what you monitor — if failed > 0 investigate immediately
+
+###
+
+
+###############################################
+# SECTION 8: FULL FLOW WITH QUEUE MONITORING
+###############################################
+
+### Step 1: Check all queues are empty
+GET {{baseUrl}}/api/admin/queues/health
+Authorization: Bearer {{loginAdmin.response.body.data.accessToken}}
+# ✅ All queues: waiting: 0, active: 0, failed: 0
+
+###
+
+### Step 2: User makes a donation via Paystack webhook
+POST {{baseUrl}}/webhooks/paystack
+Content-Type: application/json
+x-paystack-signature: VALID_SIGNATURE
+
+{
+  "event": "charge.success",
+  "data": {
+    "reference": "FULL_FLOW_REF_001",
+    "amount": 1000000,
+    "channel": "card",
+    "metadata": {
+      "beg_id": "VALID_BEG_UUID",
+      "donor_id": "VALID_DONOR_UUID",
+      "is_anonymous": false
+    }
+  }
+}
+# ✅ Job added to donations queue
+
+###
+
+### Step 3: Check donation queue - should be active or completed
+GET {{baseUrl}}/api/admin/queues/health
+Authorization: Bearer {{loginAdmin.response.body.data.accessToken}}
+# ✅ donations.active: 1 (processing) or donations.completed: 1 (done)
+
+###
+
+### Step 4: Check email queue - should have email job
+GET {{baseUrl}}/api/admin/queues/health
+Authorization: Bearer {{loginAdmin.response.body.data.accessToken}}
+# ✅ emails.waiting or emails.completed: 1 (donation_received email)
+
+###
+
+### Step 5: User requests withdrawal
+POST {{baseUrl}}/api/withdrawals/request
+Authorization: Bearer {{loginUser.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "begId": "FUNDED_BEG_UUID"
+}
+# ✅ Job added to withdrawals queue
+
+###
+
+### Step 6: Check all queues after full flow
+GET {{baseUrl}}/api/admin/queues/health
+Authorization: Bearer {{loginAdmin.response.body.data.accessToken}}
+# ✅ Expected final state:
+# donations:   { waiting: 0, active: 0, completed: 1, failed: 0 }
+# withdrawals: { waiting: 0, active: 0, completed: 1, failed: 0 }
+# emails:      { waiting: 0, active: 0, completed: 2, failed: 0 } (donation + withdrawal emails)
+# trust_score: { waiting: 0, active: 0, completed: 2, failed: 0 } (donor + recipient)
+# beg_expiry:  { waiting: 0, active: 0, completed: 0, failed: 0, delayed: 1 }
+
+###
+
+
+###############################################
+# SECTION 9: WHAT TO WATCH FOR
+###############################################
+# ⚠️  ALERT CONDITIONS:
+#
+# donations.failed > 0
+#   → User paid but donation not recorded — CRITICAL
+#   → Check logs: src/queue/processors/donation.processor.ts
+#
+# withdrawals.failed > 0
+#   → Money not sent to user — CRITICAL
+#   → Check logs: src/queue/processors/withdrawal.processor.ts
+#
+# emails.failed > 0
+#   → User not notified — medium priority
+#   → Check email service config
+#
+# donations.waiting > 500
+#   → Jobs piling up — increase worker concurrency
+#   → Check: concurrency: 5 in donation.processor.ts
+#
+# withdrawals.waiting > 50
+#   → Paystack may be rate limiting
+#   → Check: concurrency: 2 in withdrawal.processor.ts
+#
+# ✅ HEALTHY STATE:
+#   All failed: 0
+#   waiting: low (< 100 for donations, < 10 for withdrawals)
+#   completed: incrementing over time
+###############################################

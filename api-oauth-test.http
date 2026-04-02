@@ -1,0 +1,406 @@
+###############################################
+# PLZ APP - OAUTH (GOOGLE & APPLE) TEST SUITE
+###############################################
+@baseUrl = http://localhost:3000
+@googleIdToken = PASTE_GOOGLE_ID_TOKEN_HERE
+@appleIdToken = PASTE_APPLE_ID_TOKEN_HERE
+
+
+###############################################
+# SECTION 1: GOOGLE LOGIN
+###############################################
+
+### 1.1 Google Login - New User (first time)
+# @name googleLoginNewUser
+POST {{baseUrl}}/api/auth/google
+Content-Type: application/json
+
+{
+  "idToken": "{{googleIdToken}}"
+}
+# ✅ Expected: 200 OK
+# {
+#   "success": true,
+#   "message": "Account created! Please complete your profile to continue.",
+#   "data": {
+#     "user": {
+#       "id": "...",
+#       "email": "...",
+#       "username": "...",
+#       "isEmailVerified": true,
+#       "isProfileComplete": false,
+#       "authProvider": "google",
+#       "avatar": "https://..."
+#     },
+#     "accessToken": "...",
+#     "refreshToken": "...",
+#     "isNewUser": true,
+#     "nextStep": "complete_profile"
+#   }
+# }
+
+###
+
+### 1.2 Google Login - Existing User (returning)
+# @name googleLoginExistingUser
+POST {{baseUrl}}/api/auth/google
+Content-Type: application/json
+
+{
+  "idToken": "{{googleIdToken}}"
+}
+# ✅ Expected: 200 OK
+# {
+#   "success": true,
+#   "message": "Login successful",
+#   "data": {
+#     "isNewUser": false,
+#     "nextStep": "home"
+#   }
+# }
+
+###
+
+### 1.3 Google Login - Missing Token (SHOULD FAIL)
+POST {{baseUrl}}/api/auth/google
+Content-Type: application/json
+
+{}
+# ❌ Expected: 400 - "Google ID token is required"
+
+###
+
+### 1.4 Google Login - Invalid Token (SHOULD FAIL)
+POST {{baseUrl}}/api/auth/google
+Content-Type: application/json
+
+{
+  "idToken": "invalid.token.here"
+}
+# ❌ Expected: 401 - "Invalid Google token. Please try again."
+
+###
+
+### 1.5 Google Login - Suspended Account (SHOULD FAIL)
+# Replace with a suspended user's Google token
+POST {{baseUrl}}/api/auth/google
+Content-Type: application/json
+
+{
+  "idToken": "SUSPENDED_USER_GOOGLE_TOKEN"
+}
+# ❌ Expected: 403 - "Your account has been suspended. Contact support@plz.app"
+
+###
+
+
+###############################################
+# SECTION 2: APPLE LOGIN
+###############################################
+
+### 2.1 Apple Login - New User First Time (with name)
+# Apple sends name ONLY on first login — must include it here
+# @name appleLoginNewUser
+POST {{baseUrl}}/api/auth/apple
+Content-Type: application/json
+
+{
+  "idToken": "{{appleIdToken}}",
+  "firstName": "Chigozie",
+  "lastName": "Godwin"
+}
+# ✅ Expected: 200 OK
+# {
+#   "success": true,
+#   "message": "Account created! Please complete your profile to continue.",
+#   "data": {
+#     "user": {
+#       "isEmailVerified": true,
+#       "isProfileComplete": false,
+#       "authProvider": "apple"
+#     },
+#     "isNewUser": true,
+#     "nextStep": "complete_profile"
+#   }
+# }
+
+###
+
+### 2.2 Apple Login - Returning User (no name — Apple doesn't resend it)
+POST {{baseUrl}}/api/auth/apple
+Content-Type: application/json
+
+{
+  "idToken": "{{appleIdToken}}"
+}
+# ✅ Expected: 200 OK
+# {
+#   "data": {
+#     "isNewUser": false,
+#     "nextStep": "home"
+#   }
+# }
+
+###
+
+### 2.3 Apple Login - Missing Token (SHOULD FAIL)
+POST {{baseUrl}}/api/auth/apple
+Content-Type: application/json
+
+{}
+# ❌ Expected: 400 - "Apple ID token is required"
+
+###
+
+### 2.4 Apple Login - Invalid Token (SHOULD FAIL)
+POST {{baseUrl}}/api/auth/apple
+Content-Type: application/json
+
+{
+  "idToken": "invalid.apple.token"
+}
+# ❌ Expected: 401 - "Invalid Apple token. Please try again."
+
+###
+
+### 2.5 Apple Login - Suspended Account (SHOULD FAIL)
+POST {{baseUrl}}/api/auth/apple
+Content-Type: application/json
+
+{
+  "idToken": "SUSPENDED_USER_APPLE_TOKEN"
+}
+# ❌ Expected: 403 - "Your account has been suspended. Contact support@plz.app"
+
+###
+
+### 2.6 Apple Login - firstName too long (SHOULD FAIL)
+POST {{baseUrl}}/api/auth/apple
+Content-Type: application/json
+
+{
+  "idToken": "{{appleIdToken}}",
+  "firstName": "ThisFirstNameIsWayTooLongAndShouldFailValidationBecauseItExceedsOneHundredCharactersLimitSetInValidation",
+  "lastName": "Godwin"
+}
+# ❌ Expected: 400 - "First name too long"
+
+###
+
+
+###############################################
+# SECTION 3: COMPLETE PROFILE AFTER OAUTH
+# (Required for both Google and Apple new users)
+###############################################
+
+### 3.1 Complete Profile - All required fields
+# Use accessToken from Section 1 or 2
+POST {{baseUrl}}/api/auth/profile/complete
+Authorization: Bearer {{googleLoginNewUser.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "firstName": "Chigozie",
+  "lastName": "Godwin",
+  "phoneNumber": "08012345678",
+  "dateOfBirth": "1993-05-15",
+  "gender": "male",
+  "state": "Lagos",
+  "city": "Ikeja",
+  "agreeToTerms": true
+}
+# ✅ Expected: 201 Created
+# {
+#   "success": true,
+#   "message": "Profile completed successfully! You can now start using Plz.",
+#   "data": {
+#     "profile": {
+#       "firstName": "Chigozie",
+#       "state": "Lagos",
+#       "city": "Ikeja",
+#       ...
+#     }
+#   }
+# }
+
+###
+
+### 3.2 Complete Profile - Missing state (SHOULD FAIL)
+POST {{baseUrl}}/api/auth/profile/complete
+Authorization: Bearer {{googleLoginNewUser.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "firstName": "Chigozie",
+  "lastName": "Godwin",
+  "phoneNumber": "08012345678",
+  "dateOfBirth": "1993-05-15",
+  "city": "Ikeja",
+  "agreeToTerms": true
+}
+# ❌ Expected: 400 - state is required
+
+###
+
+### 3.3 Complete Profile - Missing city (SHOULD FAIL)
+POST {{baseUrl}}/api/auth/profile/complete
+Authorization: Bearer {{googleLoginNewUser.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "firstName": "Chigozie",
+  "lastName": "Godwin",
+  "phoneNumber": "08012345678",
+  "dateOfBirth": "1993-05-15",
+  "state": "Lagos",
+  "agreeToTerms": true
+}
+# ❌ Expected: 400 - city is required
+
+###
+
+### 3.4 Complete Profile - Without auth token (SHOULD FAIL)
+POST {{baseUrl}}/api/auth/profile/complete
+Content-Type: application/json
+
+{
+  "firstName": "Chigozie",
+  "lastName": "Godwin",
+  "phoneNumber": "08012345678",
+  "dateOfBirth": "1993-05-15",
+  "state": "Lagos",
+  "city": "Ikeja",
+  "agreeToTerms": true
+}
+# ❌ Expected: 401 - Unauthorized
+
+###
+
+### 3.5 Complete Profile - Did not agree to terms (SHOULD FAIL)
+POST {{baseUrl}}/api/auth/profile/complete
+Authorization: Bearer {{googleLoginNewUser.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "firstName": "Chigozie",
+  "lastName": "Godwin",
+  "phoneNumber": "08012345678",
+  "dateOfBirth": "1993-05-15",
+  "state": "Lagos",
+  "city": "Ikeja",
+  "agreeToTerms": false
+}
+# ❌ Expected: 400 - must agree to terms
+
+###
+
+
+###############################################
+# SECTION 4: ACCOUNT LINKING
+# (OAuth login with email that already exists)
+###############################################
+
+### 4.1 Register normally with email first
+# @name registerUser
+POST {{baseUrl}}/api/auth/register
+Content-Type: application/json
+
+{
+  "username": "chigoziegodwin",
+  "email": "chigoziegodwin93@gmail.com",
+  "password": "Test123!@#",
+  "confirmPassword": "Test123!@#"
+}
+# ✅ Expected: 201 Created
+
+###
+
+### 4.2 Now login with Google using SAME email
+# Google token must belong to chigoziegodwin93@gmail.com
+POST {{baseUrl}}/api/auth/google
+Content-Type: application/json
+
+{
+  "idToken": "{{googleIdToken}}"
+}
+# ✅ Expected: 200 OK
+# Google account is LINKED to existing email account
+# isNewUser: false
+# User keeps their existing profile data
+
+###
+
+
+###############################################
+# SECTION 5: FULL OAUTH FLOW
+###############################################
+
+### Step 1: Google Login (New User)
+# @name oauthFlowStep1
+POST {{baseUrl}}/api/auth/google
+Content-Type: application/json
+
+{
+  "idToken": "{{googleIdToken}}"
+}
+# ✅ isNewUser: true, nextStep: "complete_profile"
+
+###
+
+### Step 2: Complete Profile
+# @name oauthFlowStep2
+POST {{baseUrl}}/api/auth/profile/complete
+Authorization: Bearer {{oauthFlowStep1.response.body.data.accessToken}}
+Content-Type: application/json
+
+{
+  "firstName": "Chigozie",
+  "lastName": "Godwin",
+  "phoneNumber": "08012345678",
+  "dateOfBirth": "1993-05-15",
+  "gender": "male",
+  "state": "Lagos",
+  "city": "Ikeja",
+  "agreeToTerms": true
+}
+# ✅ Profile completed, isProfileComplete: true
+
+###
+
+### Step 3: Get Current User - Verify everything is set
+GET {{baseUrl}}/api/auth/me
+Authorization: Bearer {{oauthFlowStep1.response.body.data.accessToken}}
+# ✅ Expected: isProfileComplete: true, profile has all fields
+
+###
+
+### Step 4: Login Again with Google (Returning User)
+POST {{baseUrl}}/api/auth/google
+Content-Type: application/json
+
+{
+  "idToken": "{{googleIdToken}}"
+}
+# ✅ Expected: isNewUser: false, nextStep: "home"
+
+###
+
+
+###############################################
+# TEST SUMMARY
+###############################################
+# Total Tests: 20+
+#
+# ✅ Google Login (5 tests)
+# ✅ Apple Login (6 tests)
+# ✅ Complete Profile after OAuth (5 tests)
+# ✅ Account Linking (2 tests)
+# ✅ Full OAuth Flow (4 steps)
+#
+# HOW TO GET TEST TOKENS:
+# Google: https://developers.google.com/oauthplayground
+#   → Select "Google OAuth2 API v2"
+#   → Authorize and get id_token
+#
+# Apple: Use XCode simulator or
+#   → https://developer.apple.com/documentation/sign_in_with_apple/sign_in_with_apple_rest_api/authenticating_users_with_sign_in_with_apple

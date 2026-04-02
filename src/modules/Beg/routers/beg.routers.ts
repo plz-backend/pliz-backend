@@ -12,7 +12,8 @@ import { validateRequest } from '../../auth/middleware/auth/validateRequest';
 import {
   createBegValidation,
   getBegsFeedValidation,
-  getBegByIdValidation,
+  getBegByIdValidation, 
+  extendBegValidation
 } from '../middleware/beg.validation';
 
 // Controllers
@@ -22,8 +23,13 @@ import { getBegById } from '../../Beg/controller/beg.controller.get_beg_by_id'; 
 import { getMyBegs } from '../../Beg/controller/beg.controller.get_my_begs';        // User's own begs
 import { updateBeg } from '../../Beg/controller/beg.update_beg.js';
 import { cancelBeg } from '../../Beg/controller/beg.controller.cancel_beg';
+import { extendBeg } from '../../Beg/controller/beg.extend_beg.controller';
 import { getCategories } from '../../Beg/controller/beg.get_categories.js';
 import { getTrustProgress} from '../../Beg/controller/beg.get_trust_progress.js';
+import { getExpiringBegs } from '../../Beg/beg_extend_notification/beg.extend.notification.controller';
+
+
+
 
 const router = Router();
 
@@ -128,5 +134,13 @@ router.delete(
   validateRequest,
   cancelBeg
 );
+
+
+
+// PUT /api/begs/:id/extend
+router.put('/:id/extend', authenticate, checkAccountStatus, extendBegValidation, validateRequest, extendBeg);
+
+// GET /api/begs/expiring
+router.get('/expiring', authenticate, getExpiringBegs);
 
 export default router;

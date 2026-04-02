@@ -45,6 +45,12 @@ model User {
   isUnderInvestigation   Boolean   @default(false) @map("is_under_investigation")
   investigationReason    String?   @map("investigation_reason") @db.Text
   investigationStartedAt DateTime? @map("investigation_started_at") @db.Timestamp(6)
+
+  // OAuth fields
+  googleId     String?  @unique @map("google_id") @db.VarChar(255)
+  appleId      String?  @unique @map("apple_id") @db.VarChar(255)
+  authProvider String   @default("email") @map("auth_provider") @db.VarChar(20) // email, google, apple
+  avatar       String?  @db.Text
   
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
   updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamp(6)
@@ -65,6 +71,7 @@ model User {
   savedCards        SavedCard[]
   bankAccounts      BankAccount[]
   withdrawals       Withdrawal[]
+  stories           Story[]
   
   // ADMIN ACTIONS
   adminActions      AdminAction[] @relation("AdminActions")
@@ -76,6 +83,8 @@ model User {
   @@index([isSuspended])
   @@index([isUnderInvestigation])
   @@map("app_users")
+  @@index([googleId])
+  @@index([appleId])
 }
 
 
@@ -87,9 +96,14 @@ model UserProfile {
   firstName    String   @map("first_name") @db.VarChar(100)
   middleName   String?  @map("middle_name") @db.VarChar(100)
   lastName     String   @map("last_name") @db.VarChar(100)
+  displayName  String?  @map("display_name") @db.VarChar(150)
   phoneNumber  String   @map("phone_number") @db.VarChar(20)
+  gender       String?  @map("gender") @db.VarChar(10)  // male or female
+  dateOfBirth  DateTime @map("date_of_birth") @db.Date
+  address      String?  @map("address") @db.VarChar(255)        // e.g. 12 Allen Avenue (optional)
+  city         String  @map("city") @db.VarChar(100)
+  state        String   @map("state") @db.VarChar(50)
   agreeToTerms Boolean  @default(false) @map("agree_to_terms")
-  displayName  String?  @map("display_name") @db.VarChar(150) // Optional public name
   isAnonymous  Boolean  @default(false) @map("is_anonymous")
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamp(6)
   updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
@@ -154,28 +168,27 @@ model Beg {
   id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   userId          String    @map("user_id") @db.Uuid
   categoryId      String    @map("category_id") @db.Uuid
-  title           String    @db.VarChar(25)  // Max 25 characters
-  description     String?   @db.VarChar(500) // NEW - Max ~30 words (500 chars)
+  description     String?   @db.VarChar(300) // Max ~40 words (300 chars)
   amountRequested Decimal   @map("amount_requested") @db.Decimal(12, 2)
   amountRaised    Decimal   @default(0) @map("amount_raised") @db.Decimal(12, 2)
   status          String    @default("active") @db.VarChar(20)
   approved        Boolean   @default(false)
-  approvedAt      DateTime? @map("approved_at") @db.Timestamp(6) // NEW
+  approvedAt      DateTime? @map("approved_at") @db.Timestamp(6)
   approvedBy      String?   @map("approved_by") @db.Uuid
-  rejectedAt      DateTime? @map("rejected_at") @db.Timestamp(6) // NEW
-  rejectedBy      String?   @map("rejected_by") @db.Uuid // NEW
-  rejectionReason String?   @map("rejection_reason") @db.Text // NEW
+  rejectedAt      DateTime? @map("rejected_at") @db.Timestamp(6)
+  rejectedBy      String?   @map("rejected_by") @db.Uuid
+  rejectionReason String?   @map("rejection_reason") @db.Text
+  expiryHours     Int       @default(24) @map("expiry_hours") // 24, 48, or 168 (7 days)
   expiresAt       DateTime  @map("expires_at") @db.Timestamp(6)
   payoutRequested Boolean   @default(false) @map("payout_requested")
   isWithdrawn     Boolean   @default(false) @map("is_withdrawn")
   withdrawnAt     DateTime? @map("withdrawn_at") @db.Timestamp(6)
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamp(6)
 
-  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamp(6) 
-
-   // Media fields
-  mediaType        String?   @default("text") @map("media_type") @db.VarChar(10)
-  mediaUrl         String?   @map("media_url") @db.Text
+  // Media fields
+  mediaType       String?   @default("text") @map("media_type") @db.VarChar(10)
+  mediaUrl        String?   @map("media_url") @db.Text
 
   // Relations
   user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -466,6 +479,30 @@ model Withdrawal {
   @@index([status])
   @@index([createdAt])
   @@map("withdrawals")
+}
+
+
+model Story {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId         String    @map("user_id") @db.Uuid
+  content        String    @db.VarChar(500)
+  isApproved     Boolean   @default(false) @map("is_approved")
+  approvedAt     DateTime? @map("approved_at") @db.Timestamp(6)
+  approvedBy     String?   @map("approved_by") @db.Uuid
+  rejectedAt     DateTime? @map("rejected_at") @db.Timestamp(6)
+  rejectedBy     String?   @map("rejected_by") @db.Uuid
+  rejectionReason String?  @map("rejection_reason") @db.Text
+  isVisible      Boolean   @default(true) @map("is_visible")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isApproved])
+  @@index([isVisible])
+  @@index([createdAt])
+  @@map("stories")
 }
 
 //

@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import prisma from '../../../../config/database';
+import { Decimal } from '@prisma/client/runtime/library';
 import { IApiResponse } from '../../../auth/types/user.interface';
 import logger from '../../../../config/logger';
 
@@ -10,6 +11,43 @@ const sendResponse = <T = any>(
 ): void => {
   res.status(statusCode).json(response);
 };
+
+// ============================================
+// TYPED INTERFACE FOR WITHDRAWAL WITH RELATIONS
+// ============================================
+interface IWithdrawalWithRelations {
+  id: string;
+  userId: string;
+  begId: string;
+  bankAccountId: string;
+  amountRequested: Decimal;
+  companyFee: Decimal;
+  vatFee: Decimal;
+  totalFees: Decimal;
+  amountToReceive: Decimal;
+  transferReference: string | null;
+  status: string;
+  failureReason: string | null;
+  autoProcessed: boolean;
+  processedAt: Date | null;
+  createdAt: Date;
+  user: {
+    id: string;
+    email: string;
+    username: string;
+    isSuspended: boolean;
+    isUnderInvestigation: boolean;
+  };
+  beg: {
+    id: string;
+    description: string | null;
+  };
+  bankAccount: {
+    accountNumber: string;
+    accountName: string;
+    bankName: string;
+  };
+}
 
 /**
  * @route   GET /api/admin/withdrawals
@@ -45,7 +83,7 @@ export const getAllWithdrawals = async (req: Request, res: Response): Promise<vo
           beg: {
             select: {
               id: true,
-              title: true,
+              description: true,
             },
           },
           bankAccount: {
@@ -56,7 +94,7 @@ export const getAllWithdrawals = async (req: Request, res: Response): Promise<vo
             },
           },
         },
-      }),
+      }) as Promise<IWithdrawalWithRelations[]>,
       prisma.withdrawal.count({ where }),
     ]);
 
@@ -64,7 +102,7 @@ export const getAllWithdrawals = async (req: Request, res: Response): Promise<vo
       success: true,
       message: 'Withdrawals retrieved successfully',
       data: {
-        withdrawals: withdrawals.map((w) => ({
+        withdrawals: withdrawals.map((w: IWithdrawalWithRelations) => ({
           id: w.id,
           user: {
             id: w.user.id,
@@ -73,13 +111,20 @@ export const getAllWithdrawals = async (req: Request, res: Response): Promise<vo
             is_suspended: w.user.isSuspended,
             is_under_investigation: w.user.isUnderInvestigation,
           },
-          beg: w.beg,
+          beg: {
+            id: w.beg.id,
+            description: w.beg.description,
+          },
           amount_requested: parseFloat(w.amountRequested.toString()),
           company_fee: parseFloat(w.companyFee.toString()),
           vat_fee: parseFloat(w.vatFee.toString()),
           total_fees: parseFloat(w.totalFees.toString()),
           amount_to_receive: parseFloat(w.amountToReceive.toString()),
-          bank_account: w.bankAccount,
+          bank_account: {
+            account_number: w.bankAccount.accountNumber,
+            account_name: w.bankAccount.accountName,
+            bank_name: w.bankAccount.bankName,
+          },
           status: w.status,
           auto_processed: w.autoProcessed,
           transfer_reference: w.transferReference,
@@ -93,9 +138,6 @@ export const getAllWithdrawals = async (req: Request, res: Response): Promise<vo
     });
   } catch (error: any) {
     logger.error('Get all withdrawals error', { error: error.message });
-    sendResponse(res, 500, {
-      success: false,
-      message: 'Failed to retrieve withdrawals',
-    });
+    sendResponse(res, 500, { success: false, message: 'Failed to retrieve withdrawals' });
   }
 };

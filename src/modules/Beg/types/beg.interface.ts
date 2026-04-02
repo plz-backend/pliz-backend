@@ -2,13 +2,10 @@
  * Beg Types & Interfaces
  */
 
-// Beg statuses
-export type BegStatus = 'active' | 'funded' | 'expired' | 'cancelled' | 'flagged' | 'rejected'; // ✅ Added 'rejected'
-
-// Trust tiers
+export type BegStatus = 'active' | 'funded' | 'expired' | 'cancelled' | 'flagged' | 'rejected';
 export type TrustTier = 1 | 2 | 3;
+export type ExpiryHours = 24 | 72 | 168;
 
-// Trust tier names
 export enum TrustTierName {
   NEWCOMER = 'Newcomer',
   VERIFIED_BEGINNER = 'Verified Beginner',
@@ -16,9 +13,6 @@ export enum TrustTierName {
   SUPER_ASKER = 'Super Asker',
 }
 
-/**
- * Category Interface
- */
 export interface ICategory {
   id: string;
   name: string;
@@ -29,15 +23,12 @@ export interface ICategory {
   sortOrder: number;
 }
 
-/**
- * Beg Interface
- */
 export interface IBeg {
   id: string;
   userId: string;
   categoryId: string;
-  title: string;
   description: string | null;
+  expiryHours: ExpiryHours;          // ← ADDED
   amountRequested: number;
   amountRaised: number;
   status: BegStatus;
@@ -51,50 +42,38 @@ export interface IBeg {
   payoutRequested: boolean;
   isWithdrawn: boolean;
   withdrawnAt: Date | null;
-  mediaType: string | null;        
-  mediaUrl: string | null;         
+  mediaType: string | null;
+  mediaUrl: string | null;
   createdAt: Date;
-  updatedAt: Date; 
+  updatedAt: Date;
 }
 
-/**
- * Create Beg Request
- */
 export interface ICreateBegRequest {
-  categoryId: string;                  // Category ID
-  title: string;                     // Required, max 25 characters
-  description?: string | null;       // Optional, max 30 words / 500 characters
+  categoryId: string;
+  description?: string | null;       // Optional, max 40 words / 300 characters
   amountRequested: number;           // Required, min ₦100
+  expiryHours?: ExpiryHours;         // ← ADDED, defaults to 24
   mediaType?: 'video' | 'audio' | 'text';
   mediaUrl?: string;
 }
 
-/**
- * Update Beg Request
- */
 export interface IUpdateBegRequest {
-  title?: string;                    // Max 25 characters
-  description?: string | null;       // Max 30 words / 500 characters
+  description?: string | null;       // Max 40 words / 300 characters
   amountRequested?: number;
   mediaType?: 'video' | 'audio' | 'text';
   mediaUrl?: string;
 }
 
-/**
- * Beg Response (for API)
- */
 export interface IBegResponse {
   id: string;
   userId: string;
   username?: string;
   displayName?: string;
   isAnonymous?: boolean;
-  /** Public listing: given name (omitted when anonymous). */
   firstName?: string;
-  /** Public listing: family name (omitted when anonymous). */
   lastName?: string;
-  title: string;                     
-  description: string | null;        
+  description: string | null;
+  expiryHours: ExpiryHours;          // ← ADDED
   category: {
     id: string;
     name: string;
@@ -106,17 +85,18 @@ export interface IBegResponse {
   percentFunded?: number;
   status: BegStatus;
   approved: boolean;
-  approvedAt: Date | null;           
-  rejectedAt: Date | null;          
-  rejectionReason: string | null;   
+  approvedAt: Date | null;
+  rejectedAt: Date | null;
+  rejectionReason: string | null;
   expiresAt: Date;
   createdAt: Date;
   timeRemaining?: string;
+  availableExtensions?: {            // ← ADDED: for the extension popup
+    hours: ExpiryHours;
+    label: string;
+  }[];
 }
 
-/**
- * Admin Beg Response (includes admin fields)
- */
 export interface IAdminBegResponse extends IBegResponse {
   approvedBy: string | null;
   rejectedBy: string | null;
@@ -131,9 +111,6 @@ export interface IAdminBegResponse extends IBegResponse {
   };
 }
 
-/**
- * Trust Tier Config
- */
 export interface ITrustTierConfig {
   tier: TrustTier;
   name: TrustTierName;
@@ -144,9 +121,6 @@ export interface ITrustTierConfig {
   superAskPerMonth: number;
 }
 
-/**
- * Cooldown Info
- */
 export interface ICooldownInfo {
   isOnCooldown: boolean;
   nextRequestAllowedAt: Date | null;
@@ -154,9 +128,6 @@ export interface ICooldownInfo {
   message?: string;
 }
 
-/**
- * User Stats
- */
 export interface IUserStats {
   totalDonated: number;
   totalReceived: number;
@@ -164,9 +135,6 @@ export interface IUserStats {
   abuseFlags: number;
 }
 
-/**
- * Trust Score
- */
 export interface ITrustScore {
   score: number;
   tier: TrustTier;
@@ -176,15 +144,12 @@ export interface ITrustScore {
   cooldownHours: number;
 }
 
-/**
- * Beg with relations (from Prisma)
- */
 export interface IBegWithRelations {
   id: string;
   userId: string;
   categoryId: string;
-  title: string;
   description: string | null;
+  expiryHours: number;               // ← ADDED
   amountRequested: any;
   amountRaised: any;
   status: string;
@@ -198,10 +163,10 @@ export interface IBegWithRelations {
   payoutRequested: boolean;
   isWithdrawn: boolean;
   withdrawnAt: Date | null;
-  mediaType: string | null;        
-  mediaUrl: string | null;         
+  mediaType: string | null;
+  mediaUrl: string | null;
   createdAt: Date;
-  updatedAt: Date;                 
+  updatedAt: Date;
   category: {
     id: string;
     name: string;
@@ -216,13 +181,12 @@ export interface IBegWithRelations {
     profile: {
       displayName: string | null;
       isAnonymous: boolean;
+      firstName: string | null;      // ← ADDED (used in transformBegResponse)
+      lastName: string | null;       // ← ADDED
     } | null;
   };
 }
 
-/**
- * Trust tier progress information
- */
 export interface ITrustProgress {
   currentScore: number;
   currentTier: number;
@@ -253,19 +217,16 @@ export interface ITrustProgress {
   recommendations: string[];
 }
 
-/**
- * Withdrawal Interface
- */
 export interface IWithdrawal {
   id: string;
   userId: string;
   begId: string;
   bankAccountId: string;
   amountRequested: number;
-  companyFee: number;              // 5%
-  vatFee: number;                  // 7.5%
-  totalFees: number;               // 12.5%
-  amountToReceive: number;         // After fees
+  companyFee: number;
+  vatFee: number;
+  totalFees: number;
+  amountToReceive: number;
   transferReference: string | null;
   status: 'pending' | 'processing' | 'completed' | 'failed' | 'on_hold';
   failureReason: string | null;
@@ -274,9 +235,6 @@ export interface IWithdrawal {
   createdAt: Date;
 }
 
-/**
- * Bank Account Interface
- */
 export interface IBankAccount {
   id: string;
   userId: string;
@@ -289,26 +247,17 @@ export interface IBankAccount {
   createdAt: Date;
 }
 
-/**
- * Nigerian Bank Interface
- */
 export interface INigerianBank {
   name: string;
   code: string;
   slug: string;
 }
 
-/**
- * Withdrawal Request
- */
 export interface IWithdrawalRequest {
   begId: string;
-  bankAccountId?: string;  // Optional - uses default if not provided
+  bankAccountId?: string;
 }
 
-/**
- * Withdrawal Response
- */
 export interface IWithdrawalResponse {
   id: string;
   amount_raised: number;

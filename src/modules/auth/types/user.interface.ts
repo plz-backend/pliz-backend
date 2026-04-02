@@ -1,4 +1,4 @@
-import { User, UserRole, UserProfile } from '@prisma/client';  // Import UserProfile
+import { User, UserRole, UserProfile } from '@prisma/client';
 
 /**
  * =====================================================
@@ -6,20 +6,10 @@ import { User, UserRole, UserProfile } from '@prisma/client';  // Import UserPro
  * =====================================================
  */
 
-/**
- * Re-export UserRole from Prisma
- */
 export { UserRole } from '@prisma/client';
 
-/**
- * Re-export User type from Prisma
- */
 export type IUser = User;
 
-/**
- * Re-export UserProfile type from Prisma
- *  ADDED: Use Prisma's generated type
- */
 export type IUserProfile = UserProfile;
 
 /**
@@ -35,20 +25,19 @@ export interface IJWTPayload {
   exp?: number;
 }
 
-
 /** Aggregated public stats from `user_stats` + computed fields (GET /me, etc.) */
 export interface IUserStatsSummary {
   totalDonated: number;
   totalReceived: number;
   requestsCount: number;
-  /** Distinct request owners this user has successfully donated to */
   peopleHelped: number;
-  /** Distinct request owners donated to in the last 7 days (rolling window) */
   peopleHelpedThisWeek: number;
 }
 
 /**
  * User Response Interface (excludes sensitive data)
+ * NOTE: state lives inside profile.state — not duplicated here
+ * Profile is completed AFTER login so state is not available at login time
  */
 export interface IUserResponse {
   id: string;
@@ -63,7 +52,6 @@ export interface IUserResponse {
   createdAt: Date;
   updatedAt: Date;
   profile?: IUserProfile | null;
-  /** Present on GET /api/auth/me when `stats` relation is loaded */
   stats?: IUserStatsSummary | null;
 }
 
@@ -85,7 +73,7 @@ export interface ICreateAdminRequest {
   email: string;
   password: string;
   confirmPassword: string;
-  role: UserRole;  
+  role: UserRole;
 }
 
 /**
@@ -95,7 +83,6 @@ export interface ILoginRequest {
   email: string;
   password: string;
 }
-
 
 /**
  * Login Response
@@ -157,9 +144,6 @@ export interface IApiResponse<T = any> {
  * =====================================================
  */
 
-/**
- * Session Interface (matches Prisma schema)
- */
 export interface ISession {
   id: string;
   userId: string;
@@ -175,25 +159,19 @@ export interface ISession {
   country: string | null;
   city: string | null;
   createdAt: Date;
-  updatedAt: Date;  // Prisma's @updatedAt will handle this automatically
+  updatedAt: Date;
 }
 
-/**
- * Session Response (for API) - Extends ISession with formatted fields
- */
 export interface ISessionResponse extends ISession {
-  deviceInfo: IDeviceInfo;          // Formatted device info
-  formattedIpAddress: string;       // Non-null IP address
-  location?: {                       // Formatted location
+  deviceInfo: IDeviceInfo;
+  formattedIpAddress: string;
+  location?: {
     country?: string;
     city?: string;
   };
-  isCurrent?: boolean;              // Is this the current session?
+  isCurrent?: boolean;
 }
 
-/**
- * Device Info
- */
 export interface IDeviceInfo {
   userAgent: string;
   browser: string;
@@ -209,37 +187,81 @@ export interface IDeviceInfo {
 
 /**
  * Complete Profile Request
+ * Ordered to match the UX flow:
+ * Step 1: Personal Identity
+ * Step 2: Contact
+ * Step 3: Location
+ * Step 4: Privacy
+ * Step 5: Legal
  */
 export interface ICompleteProfileRequest {
+  // Step 1: Personal Identity
   firstName: string;
   middleName?: string;
   lastName: string;
-  phoneNumber: string;
-  dateOfBirth?: Date;
-  gender?: string;
-  address?: string;
-  city?: string;
-  state?: string;
-  country?: string;
   displayName?: string;
+  dateOfBirth: Date;                  // ← required, must be 18+
+  gender: 'male' | 'female';         // ← required, male or female only
+
+  // Step 2: Contact
+  phoneNumber: string;
+
+  // Step 3: Location
+  state: string;                      // ← required, must be valid Nigerian state
+  city: string;                       // ← required
+  address?: string;                   // ← optional
+
+  // Step 4: Privacy
   isAnonymous?: boolean;
-  agreeToTerms: boolean;
+
+  // Step 5: Legal
+  agreeToTerms: boolean;              // ← required, must be true
 }
 
 /**
  * Update Profile Request
+ * Everything optional — user can update individual fields
  */
 export interface IUpdateProfileRequest {
+  // Personal Identity
   firstName?: string;
   middleName?: string;
   lastName?: string;
-  phoneNumber?: string;
-  dateOfBirth?: Date;
-  gender?: string;
-  address?: string;
-  city?: string;
-  state?: string;
-  country?: string;
   displayName?: string;
+  dateOfBirth?: Date;
+  gender?: 'male' | 'female';        // ← male or female only
+
+  // Contact
+  phoneNumber?: string;
+
+  // Location
+  state?: string;
+  city?: string;
+  address?: string;
+
+  // Privacy
   isAnonymous?: boolean;
+}
+
+/**
+ * =====================================================
+ * OAUTH TYPES
+ * =====================================================
+ */
+
+export interface IOAuthRequest {
+  provider: 'google' | 'apple';
+  idToken: string;
+  firstName?: string;                 // Apple only sends this on first login
+  lastName?: string;
+}
+
+export interface IOAuthProfile {
+  provider: 'google' | 'apple';
+  providerId: string;
+  email: string;
+  firstName?: string;
+  lastName?: string;
+  displayName?: string;
+  avatar?: string;
 }

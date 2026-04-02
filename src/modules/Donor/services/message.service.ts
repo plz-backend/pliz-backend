@@ -2,16 +2,28 @@ import prisma from '../../../config/database';
 import { NotificationService } from '../../notifications/services/notification.service';
 import logger from '../../../config/logger';
 
+// ============================================
+// HELPER
+// ============================================
+const buildBegTitle = (
+  category: { name: string; icon: string | null } | null,
+  description: string | null
+): string => {
+  if (!category) return 'Help Request';
+  const icon = category.icon ? ` ${category.icon}` : '';
+  const desc = description ? ` — ${description}` : '';
+  return `${category.name}${icon}${desc}`;
+};
+
 export class MessageService {
   /**
    * Recipient sends gratitude message to donor
-   * Fills the empty record created during processDonation()
    */
   static async sendGratitudeMessage(
     donationId: string,
     userId: string,
     data: {
-      messageType: 1 | 2;   // 1=text only now, 2=audio coming soon
+      messageType: 1 | 2;
       content: string;
       donorReplyAllowed: boolean;
     }
@@ -60,7 +72,7 @@ export class MessageService {
       });
       const senderName = senderProfile?.displayName || 'Someone';
 
-      // Notify donor - real-time if online (like WhatsApp)
+      // Notify donor
       if (donation.donorId) {
         await NotificationService.messageReceived({
           userId: donation.donorId,
@@ -90,7 +102,6 @@ export class MessageService {
 
   /**
    * Donor replies to gratitude message
-   * One reply only, within 24 hours
    */
   static async sendDonorReply(
     donationId: string,
@@ -141,7 +152,7 @@ export class MessageService {
       });
       const donorName = donorProfile?.displayName || 'Your donor';
 
-      // Notify recipient - real-time if online
+      // Notify recipient
       await NotificationService.donorReplied({
         userId: donation.beg.userId,
         donationId,
@@ -189,7 +200,7 @@ export class MessageService {
               beg: {
                 select: {
                   id: true,
-                  title: true,
+                  description: true,                        // ← title removed
                   category: { select: { name: true, icon: true } },
                 },
               },
@@ -203,7 +214,7 @@ export class MessageService {
     ]);
 
     return {
-      messages: messages.map((m) => ({
+      messages: messages.map((m: any) => ({
         id: m.id,
         content: m.content,
         donor_reply_allowed: m.donorReplyAllowed,
@@ -215,7 +226,11 @@ export class MessageService {
           id: m.donation.id,
           amount: parseFloat(m.donation.amount.toString()),
           created_at: m.donation.createdAt,
-          beg: m.donation.beg,
+          beg: {
+            id: m.donation.beg.id,
+            title: buildBegTitle(m.donation.beg.category, m.donation.beg.description), // ← uses helper
+            category: m.donation.beg.category,
+          },
         },
       })),
       total,
@@ -252,7 +267,13 @@ export class MessageService {
                   profile: { select: { displayName: true } },
                 },
               },
-              beg: { select: { id: true, title: true } },
+              beg: {
+                select: {
+                  id: true,
+                  description: true,                        // ← title removed
+                  category: { select: { name: true, icon: true } },
+                },
+              },
             },
           },
         },
@@ -263,7 +284,7 @@ export class MessageService {
     ]);
 
     return {
-      messages: messages.map((m) => ({
+      messages: messages.map((m: any) => ({
         id: m.id,
         content: m.content,
         donor_replied: m.donorReplied,
@@ -278,7 +299,11 @@ export class MessageService {
             : m.donation.donor?.profile?.displayName ||
               m.donation.donor?.username ||
               'Unknown',
-          beg: m.donation.beg,
+          beg: {
+            id: m.donation.beg.id,
+            title: buildBegTitle(m.donation.beg.category, m.donation.beg.description), // ← uses helper
+            category: m.donation.beg.category,
+          },
         },
       })),
       total,

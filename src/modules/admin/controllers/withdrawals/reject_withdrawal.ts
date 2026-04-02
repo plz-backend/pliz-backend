@@ -1,7 +1,8 @@
 import { Request, Response } from 'express';
 import prisma from '../../../../config/database';
+import { Decimal } from '@prisma/client/runtime/library';
 import { AdminService } from '../../services/admin.service';
-import { WithdrawalEmailService } from '../../../Withdrawal/services/withdrawal_email.service'; // ✅ Import
+import { WithdrawalEmailService } from '../../../Withdrawal/services/withdrawal_email.service';
 import { IApiResponse } from '../../../auth/types/user.interface';
 import logger from '../../../../config/logger';
 
@@ -15,6 +16,42 @@ const sendResponse = <T = any>(
 
 interface WithdrawalParams {
   id: string;
+}
+
+interface IWithdrawalRejectRelations {
+  id: string;
+  userId: string;
+  begId: string;
+  bankAccountId: string;
+  amountRequested: Decimal;
+  amountToReceive: Decimal;
+  companyFee: Decimal;
+  vatFee: Decimal;
+  totalFees: Decimal;
+  transferReference: string | null;
+  status: string;
+  failureReason: string | null;
+  autoProcessed: boolean;
+  processedAt: Date | null;
+  createdAt: Date;
+  user: {
+    email: string;
+    username: string;
+    profile: {
+      displayName: string | null;
+    } | null;
+  };
+  beg: {
+    description: string | null;
+    category: {
+      name: string;
+    };
+  };
+  bankAccount: {
+    accountNumber: string;
+    accountName: string;
+    bankName: string;
+  };
 }
 
 /**
@@ -33,10 +70,7 @@ export const rejectWithdrawal = async (
     const ip = req.ip || req.headers['x-forwarded-for'] as string || 'unknown';
 
     if (!reason) {
-      sendResponse(res, 400, {
-        success: false,
-        message: 'Rejection reason is required',
-      });
+      sendResponse(res, 400, { success: false, message: 'Rejection reason is required' });
       return;
     }
 
@@ -49,15 +83,16 @@ export const rejectWithdrawal = async (
             email: true,
             username: true,
             profile: {
-              select: {
-                displayName: true,
-              },
+              select: { displayName: true },
             },
           },
         },
         beg: {
           select: {
-            title: true,
+            description: true,
+            category: {
+              select: { name: true },
+            },
           },
         },
         bankAccount: {
@@ -68,13 +103,10 @@ export const rejectWithdrawal = async (
           },
         },
       },
-    });
+    }) as IWithdrawalRejectRelations | null;
 
     if (!withdrawal) {
-      sendResponse(res, 404, {
-        success: false,
-        message: 'Withdrawal not found',
-      });
+      sendResponse(res, 404, { success: false, message: 'Withdrawal not found' });
       return;
     }
 
@@ -87,15 +119,17 @@ export const rejectWithdrawal = async (
       },
     });
 
-    // ✅ Send rejection email
+    // Send rejection email
     const recipientName = withdrawal.user.profile?.displayName || withdrawal.user.username;
+    const begTitle = `${withdrawal.beg.category.name}${withdrawal.beg.description ? ` — ${withdrawal.beg.description}` : ''}`;
+
     await WithdrawalEmailService.sendFailureEmail(withdrawal.user.email, {
       recipientName,
       amount: Number(withdrawal.amountToReceive),
       bankName: withdrawal.bankAccount.bankName,
       accountNumber: withdrawal.bankAccount.accountNumber,
       failureReason: `Your withdrawal was rejected by our team. Reason: ${reason}`,
-      begTitle: withdrawal.beg.title || 'Your request',
+      begTitle,
       supportEmail: process.env.SUPPORT_EMAIL || 'support@pliz.app',
     });
 
@@ -114,13 +148,8 @@ export const rejectWithdrawal = async (
       ipAddress: ip,
     });
 
-    logger.warn('Withdrawal rejected by admin', {
-      withdrawalId: id,
-      reason,
-      adminId,
-    });
+    logger.warn('Withdrawal rejected by admin', { withdrawalId: id, reason, adminId });
 
-    // ✅ Updated message
     sendResponse(res, 200, {
       success: true,
       message: 'Withdrawal rejected successfully. User has been notified via email.',
@@ -137,7 +166,6 @@ export const rejectWithdrawal = async (
       error: error.message,
       withdrawalId: req.params.id,
     });
-
     sendResponse(res, 500, {
       success: false,
       message: error.message || 'Failed to reject withdrawal',

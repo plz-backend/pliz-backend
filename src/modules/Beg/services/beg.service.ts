@@ -1,46 +1,27 @@
 import prisma from '../../../config/database';
-import { IBeg, IBegResponse, ICreateBegRequest, IUpdateBegRequest, IBegWithRelations, BegStatus } from '../types/beg.interface';
-import { BEG_EXPIRY_DAYS } from '../../../config/trust_tiers';
+import { IBeg, IBegResponse, ICreateBegRequest, IUpdateBegRequest, IBegWithRelations, BegStatus, ExpiryHours } from '../types/beg.interface';
 import { TrustScoreService } from '../../../services/trust_score.service';
 import { CooldownService } from '../../../services/cooldown.service';
 import { CategoryService } from './category.service';
 import logger from '../../../config/logger';
 
 // Validation constants
-const MAX_TITLE_LENGTH = 25;
-const MAX_DESCRIPTION_WORDS = 30;
-const MAX_DESCRIPTION_LENGTH = 500;
+const MAX_DESCRIPTION_WORDS = 40;
+const MAX_DESCRIPTION_LENGTH = 300;
+const VALID_EXPIRY_HOURS = [24, 72, 168] as const; // 24h, 72h, 7 days
 
-/**
- * Beg Service
- * Handles all beg-related business logic
- */
 export class BegService {
-  /**
-   * Validate title
-   */
-  private static validateTitle(title: string): void {
-    const trimmed = title.trim();
-    
-    if (trimmed.length === 0) {
-      throw new Error('Title cannot be empty');
-    }
-    
-    if (trimmed.length > MAX_TITLE_LENGTH) {
-      throw new Error(`Title must be ${MAX_TITLE_LENGTH} characters or less`);
-    }
-  }
 
   /**
    * Validate description
    */
   private static validateDescription(description: string): void {
     const trimmed = description.trim();
-    
+
     if (trimmed.length > MAX_DESCRIPTION_LENGTH) {
       throw new Error(`Description is too long (max ${MAX_DESCRIPTION_LENGTH} characters)`);
     }
-    
+
     const wordCount = trimmed.split(/\s+/).filter(word => word.length > 0).length;
     if (wordCount > MAX_DESCRIPTION_WORDS) {
       throw new Error(`Description must be ${MAX_DESCRIPTION_WORDS} words or less (currently ${wordCount} words)`);
@@ -50,21 +31,17 @@ export class BegService {
   /**
    * Create a new beg
    */
-  static async createBeg(
-    userId: string,
-    data: ICreateBegRequest
-  ): Promise<IBeg> {
+  static async createBeg(userId: string, data: ICreateBegRequest): Promise<IBeg> {
     try {
-      //  Validate title (required)
-      if (!data.title) {
-        throw new Error('Title is required');
-      }
-      this.validateTitle(data.title);
-
-      //  Validate description (optional)
+      // Validate description (optional)
       if (data.description) {
         this.validateDescription(data.description);
       }
+
+      // Validate expiryHours
+      const expiryHours = VALID_EXPIRY_HOURS.includes(data.expiryHours as any)
+        ? data.expiryHours!
+        : 24;
 
       // Validate category exists and is active
       const isValidCategory = await CategoryService.validateCategory(data.categoryId);
@@ -77,50 +54,40 @@ export class BegService {
 
       // Check if amount exceeds tier limit
       if (data.amountRequested > trustInfo.maxAmount) {
-        throw new Error(
-          `Amount exceeds your tier limit of ₦${trustInfo.maxAmount.toLocaleString()}`
-        );
+        throw new Error(`Amount exceeds your tier limit of ₦${trustInfo.maxAmount.toLocaleString()}`);
       }
 
       // Check cooldown (Redis)
       const cooldownInfo = await CooldownService.checkCooldown(userId);
       if (cooldownInfo.isOnCooldown) {
-        throw new Error(
-          cooldownInfo.message || 'You are on cooldown'
-        );
+        throw new Error(cooldownInfo.message || 'You are on cooldown');
       }
 
       // Check daily request limit (Redis)
-      const requestCountInfo = await CooldownService.checkDailyRequestCount(
-        userId,
-        trustInfo.tier
-      );
-      
+      const requestCountInfo = await CooldownService.checkDailyRequestCount(userId, trustInfo.tier);
       if (!requestCountInfo.canRequest) {
-        throw new Error(
-          `You have reached your daily limit of ${requestCountInfo.limit} requests`
-        );
+        throw new Error(`You have reached your daily limit of ${requestCountInfo.limit} requests`);
       }
 
-      // Calculate expiry date (7 days from now)
+      // Calculate expiry date based on user's choice
       const expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + BEG_EXPIRY_DAYS);
+      expiresAt.setHours(expiresAt.getHours() + expiryHours);
 
       // Create the beg
       const beg = await prisma.beg.create({
         data: {
           userId,
           categoryId: data.categoryId,
-          title: data.title.trim(),
           description: data.description?.trim() || null,
           amountRequested: data.amountRequested,
           amountRaised: 0,
           status: 'active',
+          expiryHours,
           expiresAt,
           payoutRequested: false,
           approved: false,
-          mediaType: data.mediaType || 'text',     
-          mediaUrl: data.mediaUrl || null,         
+          mediaType: data.mediaType || 'text',
+          mediaUrl: data.mediaUrl || null,
         },
       });
 
@@ -130,36 +97,21 @@ export class BegService {
       // Increment daily request count in Redis
       await CooldownService.incrementDailyRequestCount(userId);
 
-      // Upsert user stats (create if doesn't exist)
+      // Upsert user stats
       await prisma.userStats.upsert({
         where: { userId },
-        update: {
-          requestsCount: {
-            increment: 1,
-          },
-        },
-        create: {
-          userId,
-          requestsCount: 1,
-          totalReceived: 0,
-          totalDonated: 0,
-          abuseFlags: 0,
-        },
+        update: { requestsCount: { increment: 1 } },
+        create: { userId, requestsCount: 1, totalReceived: 0, totalDonated: 0, abuseFlags: 0 },
       });
 
-      // Invalidate trust score cache (stats changed)
+      // Invalidate trust score cache
       await TrustScoreService.invalidateTrustScoreCache(userId);
 
-      //  Upsert user trust (create if doesn't exist)
+      // Upsert user trust
       await prisma.userTrust.upsert({
         where: { userId },
-        update: {
-          lastRequestAt: new Date(),
-        },
-        create: {
-          userId,
-          lastRequestAt: new Date(),
-        },
+        update: { lastRequestAt: new Date() },
+        create: { userId, lastRequestAt: new Date() },
       });
 
       logger.info('Beg created successfully', {
@@ -167,16 +119,16 @@ export class BegService {
         userId,
         amount: data.amountRequested,
         categoryId: data.categoryId,
+        expiryHours,
         hasDescription: !!data.description,
       });
 
-      //  Transform Decimal to number and cast status
       return {
         id: beg.id,
         userId: beg.userId,
         categoryId: beg.categoryId,
-        title: beg.title,
         description: beg.description,
+        expiryHours: beg.expiryHours as ExpiryHours,
         amountRequested: Number(beg.amountRequested),
         amountRaised: Number(beg.amountRaised),
         status: beg.status as BegStatus,
@@ -190,10 +142,10 @@ export class BegService {
         payoutRequested: beg.payoutRequested,
         isWithdrawn: beg.isWithdrawn,
         withdrawnAt: beg.withdrawnAt,
-        mediaType: beg.mediaType,          
-        mediaUrl: beg.mediaUrl,            
+        mediaType: beg.mediaType,
+        mediaUrl: beg.mediaUrl,
         createdAt: beg.createdAt,
-        updatedAt: beg.updatedAt,          
+        updatedAt: beg.updatedAt,
       };
     } catch (error: any) {
       logger.error('Failed to create beg', { error: error.message, userId });
@@ -202,48 +154,121 @@ export class BegService {
   }
 
   /**
-   * Update a beg
-   * ✅ NEW METHOD
+   * Extend a beg to a new expiry duration
+   * No cooldown check — extending is not creating a new request
    */
-  static async updateBeg(
-    begId: string,
-    data: IUpdateBegRequest
-  ): Promise<IBegResponse> {
+  static async extendBeg(begId: string, userId: string, expiryHours: 24 | 72 | 168): Promise<IBeg> {
     try {
-      // Validate title if provided
-      if (data.title !== undefined) {
-        this.validateTitle(data.title);
+      const beg = await prisma.beg.findUnique({ where: { id: begId } });
+
+      if (!beg) throw new Error('Beg not found');
+      if (beg.userId !== userId) throw new Error('Unauthorized to extend this beg');
+      if (beg.status !== 'active') throw new Error('Can only extend active begs');
+      if (!VALID_EXPIRY_HOURS.includes(expiryHours as any)) {
+        throw new Error('Invalid expiry hours. Must be 24, 72, or 168');
+      }
+      if (expiryHours <= beg.expiryHours) {
+        throw new Error(`New expiry must be greater than current expiry of ${beg.expiryHours} hours`);
       }
 
-      // Validate description if provided
+      const newExpiresAt = new Date();
+      newExpiresAt.setHours(newExpiresAt.getHours() + expiryHours);
+
+      const updated = await prisma.beg.update({
+        where: { id: begId },
+        data: { expiryHours, expiresAt: newExpiresAt },
+      });
+
+      logger.info('Beg extended', { begId, userId, from: beg.expiryHours, to: expiryHours });
+
+      return {
+        id: updated.id,
+        userId: updated.userId,
+        categoryId: updated.categoryId,
+        description: updated.description,
+        expiryHours: updated.expiryHours as ExpiryHours,
+        amountRequested: Number(updated.amountRequested),
+        amountRaised: Number(updated.amountRaised),
+        status: updated.status as BegStatus,
+        approved: updated.approved,
+        approvedAt: updated.approvedAt,
+        approvedBy: updated.approvedBy,
+        rejectedAt: updated.rejectedAt,
+        rejectedBy: updated.rejectedBy,
+        rejectionReason: updated.rejectionReason,
+        expiresAt: updated.expiresAt,
+        payoutRequested: updated.payoutRequested,
+        isWithdrawn: updated.isWithdrawn,
+        withdrawnAt: updated.withdrawnAt,
+        mediaType: updated.mediaType,
+        mediaUrl: updated.mediaUrl,
+        createdAt: updated.createdAt,
+        updatedAt: updated.updatedAt,
+      };
+    } catch (error: any) {
+      logger.error('Failed to extend beg', { error: error.message, begId, userId });
+      throw error;
+    }
+  }
+
+  /**
+   * Notify begs expiring within 1 hour (cron job — triggers extension prompt)
+   */
+  static async notifyExpiringBegs(): Promise<void> {
+    try {
+      const soon = new Date();
+      soon.setHours(soon.getHours() + 1);
+
+      const expiringBegs = await prisma.beg.findMany({
+        where: {
+          status: 'active',
+          approved: true,
+          expiryHours: { in: [24, 72] }, // only short-expiry begs
+          expiresAt: { lte: soon, gt: new Date() },
+        },
+        select: { id: true, userId: true, expiryHours: true, expiresAt: true },
+      });
+
+      for (const beg of expiringBegs) {
+        // TODO: send push notification / email to user
+        // "Your beg is expiring soon! Extend it to keep it live."
+        logger.info('Expiry extension prompt triggered', {
+          begId: beg.id,
+          userId: beg.userId,
+          currentExpiryHours: beg.expiryHours,
+          canExtendTo: VALID_EXPIRY_HOURS.filter(h => h > beg.expiryHours),
+          expiresAt: beg.expiresAt,
+        });
+      }
+    } catch (error: any) {
+      logger.error('Failed to notify expiring begs', { error: error.message });
+    }
+  }
+
+  /**
+   * Update a beg
+   */
+  static async updateBeg(begId: string, data: IUpdateBegRequest): Promise<IBegResponse> {
+    try {
       if (data.description !== undefined && data.description !== null) {
         this.validateDescription(data.description);
       }
 
-      // Build update data
       const updateData: any = {};
-
-      if (data.title !== undefined) {
-        updateData.title = data.title.trim();
-      }
 
       if (data.description !== undefined) {
         updateData.description = data.description ? data.description.trim() : null;
       }
-
       if (data.amountRequested !== undefined) {
         updateData.amountRequested = data.amountRequested;
       }
-
       if (data.mediaType !== undefined) {
         updateData.mediaType = data.mediaType;
       }
-
       if (data.mediaUrl !== undefined) {
         updateData.mediaUrl = data.mediaUrl;
       }
 
-      // Update the beg
       const updatedBeg = await prisma.beg.update({
         where: { id: begId },
         data: updateData,
@@ -252,30 +277,19 @@ export class BegService {
           user: {
             select: {
               username: true,
-                profile: {
-                select: {
-                  displayName: true,
-                  firstName: true,
-                  lastName: true,
-                  isAnonymous: true,
-                },
+              profile: {
+                select: { displayName: true, firstName: true, lastName: true, isAnonymous: true },
               },
             },
           },
         },
       });
 
-      logger.info('Beg updated successfully', {
-        begId,
-        updatedFields: Object.keys(updateData),
-      });
+      logger.info('Beg updated successfully', { begId, updatedFields: Object.keys(updateData) });
 
       return this.transformBegResponse(updatedBeg as IBegWithRelations);
     } catch (error: any) {
-      logger.error('Failed to update beg', {
-        error: error.message,
-        begId,
-      });
+      logger.error('Failed to update beg', { error: error.message, begId });
       throw error;
     }
   }
@@ -290,39 +304,27 @@ export class BegService {
   ): Promise<{ begs: IBegResponse[]; total: number; pages: number }> {
     try {
       const skip = (page - 1) * limit;
-
       const where: any = {
         status: 'active',
         approved: true,
-        expiresAt: {
-          gt: new Date(),
-        },
+        expiresAt: { gt: new Date() },
       };
 
-      if (categoryId) {
-        where.categoryId = categoryId;
-      }
+      if (categoryId) where.categoryId = categoryId;
 
       const [begs, total] = await Promise.all([
         prisma.beg.findMany({
           where,
           skip,
           take: limit,
-          orderBy: {
-            createdAt: 'desc',
-          },
+          orderBy: { createdAt: 'desc' },
           include: {
             category: true,
             user: {
               select: {
                 username: true,
                 profile: {
-                  select: {
-                    displayName: true,
-                    firstName: true,
-                    lastName: true,
-                    isAnonymous: true,
-                  },
+                  select: { displayName: true, firstName: true, lastName: true, isAnonymous: true },
                 },
               },
             },
@@ -331,12 +333,8 @@ export class BegService {
         prisma.beg.count({ where }),
       ]);
 
-      const begResponses: IBegResponse[] = begs.map((beg: any) =>
-        this.transformBegResponse(beg)
-      );
-
       return {
-        begs: begResponses,
+        begs: begs.map((beg: any) => this.transformBegResponse(beg)),
         total,
         pages: Math.ceil(total / limit),
       };
@@ -359,12 +357,7 @@ export class BegService {
             select: {
               username: true,
               profile: {
-                select: {
-                  displayName: true,
-                  firstName: true,
-                  lastName: true,
-                  isAnonymous: true,
-                },
+                select: { displayName: true, firstName: true, lastName: true, isAnonymous: true },
               },
             },
           },
@@ -372,7 +365,6 @@ export class BegService {
       });
 
       if (!beg) return null;
-
       return this.transformBegResponse(beg as any);
     } catch (error: any) {
       logger.error('Failed to get beg by ID', { error: error.message, begId });
@@ -396,21 +388,14 @@ export class BegService {
           where: { userId },
           skip,
           take: limit,
-          orderBy: {
-            createdAt: 'desc',
-          },
+          orderBy: { createdAt: 'desc' },
           include: {
             category: true,
             user: {
               select: {
                 username: true,
                 profile: {
-                  select: {
-                    displayName: true,
-                    firstName: true,
-                    lastName: true,
-                    isAnonymous: true,
-                  },
+                  select: { displayName: true, firstName: true, lastName: true, isAnonymous: true },
                 },
               },
             },
@@ -419,12 +404,8 @@ export class BegService {
         prisma.beg.count({ where: { userId } }),
       ]);
 
-      const begResponses: IBegResponse[] = begs.map((beg: any) =>
-        this.transformBegResponse(beg)
-      );
-
       return {
-        begs: begResponses,
+        begs: begs.map((beg: any) => this.transformBegResponse(beg)),
         total,
         pages: Math.ceil(total / limit),
       };
@@ -437,10 +418,7 @@ export class BegService {
   /**
    * Update beg status
    */
-  static async updateBegStatus(
-    begId: string,
-    status: BegStatus
-  ): Promise<IBeg> {
+  static async updateBegStatus(begId: string, status: BegStatus): Promise<IBeg> {
     try {
       const beg = await prisma.beg.update({
         where: { id: begId },
@@ -449,13 +427,12 @@ export class BegService {
 
       logger.info('Beg status updated', { begId, status });
 
-      //  Transform Decimal to number before returning
       return {
         id: beg.id,
         userId: beg.userId,
         categoryId: beg.categoryId,
-        title: beg.title,
         description: beg.description,
+        expiryHours: beg.expiryHours as ExpiryHours,
         amountRequested: Number(beg.amountRequested),
         amountRaised: Number(beg.amountRaised),
         status: beg.status as BegStatus,
@@ -469,10 +446,10 @@ export class BegService {
         payoutRequested: beg.payoutRequested,
         isWithdrawn: beg.isWithdrawn,
         withdrawnAt: beg.withdrawnAt,
-        mediaType: beg.mediaType,          // ✅ Added
-        mediaUrl: beg.mediaUrl,            // ✅ Added
+        mediaType: beg.mediaType,
+        mediaUrl: beg.mediaUrl,
         createdAt: beg.createdAt,
-        updatedAt: beg.updatedAt,          // ✅ Added
+        updatedAt: beg.updatedAt,
       };
     } catch (error: any) {
       logger.error('Failed to update beg status', { error: error.message, begId });
@@ -485,31 +462,14 @@ export class BegService {
    */
   static async cancelBeg(userId: string, begId: string): Promise<void> {
     try {
-      // Verify ownership
-      const beg = await prisma.beg.findUnique({
-        where: { id: begId },
-      });
+      const beg = await prisma.beg.findUnique({ where: { id: begId } });
 
-      if (!beg) {
-        throw new Error('Beg not found');
-      }
+      if (!beg) throw new Error('Beg not found');
+      if (beg.userId !== userId) throw new Error('Unauthorized to cancel this beg');
+      if (beg.status !== 'active') throw new Error('Can only cancel active begs');
+      if (Number(beg.amountRaised) > 0) throw new Error('Cannot cancel beg that has received donations');
 
-      if (beg.userId !== userId) {
-        throw new Error('Unauthorized to cancel this beg');
-      }
-
-      if (beg.status !== 'active') {
-        throw new Error('Can only cancel active begs');
-      }
-
-      if (Number(beg.amountRaised) > 0) {
-        throw new Error('Cannot cancel beg that has received donations');
-      }
-
-      await prisma.beg.update({
-        where: { id: begId },
-        data: { status: 'cancelled' },
-      });
+      await prisma.beg.update({ where: { id: begId }, data: { status: 'cancelled' } });
 
       logger.info('Beg cancelled by user', { begId, userId });
     } catch (error: any) {
@@ -524,19 +484,11 @@ export class BegService {
   static async expireOldBegs(): Promise<number> {
     try {
       const result = await prisma.beg.updateMany({
-        where: {
-          status: 'active',
-          expiresAt: {
-            lt: new Date(),
-          },
-        },
-        data: {
-          status: 'expired',
-        },
+        where: { status: 'active', expiresAt: { lt: new Date() } },
+        data: { status: 'expired' },
       });
 
       logger.info('Old begs expired', { count: result.count });
-
       return result.count;
     } catch (error: any) {
       logger.error('Failed to expire old begs', { error: error.message });
@@ -562,17 +514,13 @@ export class BegService {
     return {
       id: beg.id,
       userId: beg.userId,
-      username: isAnonymous
-        ? 'Anonymous'
-        : beg.user?.profile?.displayName || beg.user.username,
+      username: isAnonymous ? 'Anonymous' : beg.user?.profile?.displayName || beg.user.username,
       displayName: beg.user?.profile?.displayName || undefined,
       isAnonymous,
-      firstName:
-        isAnonymous ? undefined : firstNameRaw ? firstNameRaw : undefined,
-      lastName:
-        isAnonymous ? undefined : lastNameRaw ? lastNameRaw : undefined,
-      title: beg.title,
+      firstName: isAnonymous ? undefined : firstNameRaw || undefined,
+      lastName: isAnonymous ? undefined : lastNameRaw || undefined,
       description: beg.description,
+      expiryHours: beg.expiryHours,
       category: {
         id: beg.category.id,
         name: beg.category.name,
@@ -596,18 +544,12 @@ export class BegService {
   /**
    * Calculate time remaining
    */
-  private static calculateTimeRemaining(
-    expiresAt: Date,
-    now: Date
-  ): string {
+  private static calculateTimeRemaining(expiresAt: Date, now: Date): string {
     const diff = expiresAt.getTime() - now.getTime();
-
     if (diff <= 0) return 'Expired';
 
     const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-    const hours = Math.floor(
-      (diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60)
-    );
+    const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
 
     if (days > 0) return `${days}d ${hours}h`;
     if (hours > 0) return `${hours}h`;

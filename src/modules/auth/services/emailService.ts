@@ -53,9 +53,9 @@ export class EmailService {
         : `${apiBase}/api/auth/verify-email?token=${encodeURIComponent(token)}`;
 
       const mailOptions = {
-        from: `"PLIZ App" <${process.env.EMAIL_FROM || process.env.EMAIL_USER}>`,
+        from: `"Plz App" <${process.env.EMAIL_FROM || process.env.EMAIL_USER}>`,
         to: email,
-        subject: 'Verify Your Email - PLIZ App',
+        subject: 'Verify Your Email - Plz App',
         html: `
           <!DOCTYPE html>
           <html>
@@ -72,11 +72,11 @@ export class EmailService {
           <body>
             <div class="container">
               <div class="header">
-                <h1>Welcome to PLIZ App!</h1>
+                <h1>Welcome to Plz App!</h1>
               </div>
               <div class="content">
                 <h2>Verify Your Email Address</h2>
-                <p>Thank you for registering with PLIZ App. Please click the button below to verify your email address:</p>
+                <p>Thank you for registering with Plz App. Please click the button below to verify your email address:</p>
                 <a
                   href="${verificationUrl}"
                   style="
@@ -96,8 +96,8 @@ export class EmailService {
                 <p style="margin-top: 20px; color: #666;">This link will expire in 24 hours.</p>
               </div>
               <div class="footer">
-                <p>If you didn't create an account with PLIZ App, please ignore this email.</p>
-                <p>&copy; ${new Date().getFullYear()} PLIZ App. All rights reserved.</p>
+                <p>If you didn't create an account with Plz App, please ignore this email.</p>
+                <p>&copy; ${new Date().getFullYear()} Plz App. All rights reserved.</p>
               </div>
             </div>
           </body>
@@ -130,9 +130,9 @@ export class EmailService {
       const resetUrl = `${process.env.BASE_URL}/api/auth/reset-password?token=${token}`;
 
       const mailOptions = {
-        from: `"PLIZ App" <${process.env.EMAIL_FROM || process.env.EMAIL_USER}>`,
+        from: `"Plz App" <${process.env.EMAIL_FROM || process.env.EMAIL_USER}>`,
         to: email,
-        subject: 'Password Reset Request - PLIZ App',
+        subject: 'Password Reset Request - Plz App',
         html: `
           <!DOCTYPE html>
           <html>
@@ -164,7 +164,7 @@ export class EmailService {
               </div>
               <div class="footer">
                 <p>If you didn't request a password reset, please ignore this email or contact support if you have concerns.</p>
-                <p>&copy; ${new Date().getFullYear()} PLIZ App. All rights reserved.</p>
+                <p>&copy; ${new Date().getFullYear()} Plz App. All rights reserved.</p>
               </div>
             </div>
           </body>
@@ -195,9 +195,9 @@ export class EmailService {
       }
 
       const mailOptions = {
-        from: `"PLIZ App" <${process.env.EMAIL_FROM || process.env.EMAIL_USER}>`,
+        from: `"Plz App" <${process.env.EMAIL_FROM || process.env.EMAIL_USER}>`,
         to: email,
-        subject: 'Password Changed Successfully - PLIZ App',
+        subject: 'Password Changed Successfully - Plz App',
         html: `
           <!DOCTYPE html>
           <html>
@@ -228,7 +228,7 @@ export class EmailService {
               </div>
               <div class="footer">
                 <p>This is an automated security notification.</p>
-                <p>&copy; ${new Date().getFullYear()} PLIZ App. All rights reserved.</p>
+                <p>&copy; ${new Date().getFullYear()} Plz App. All rights reserved.</p>
               </div>
             </div>
           </body>

@@ -31,7 +31,7 @@ export class WithdrawalEmailService {
       await this.transporter.sendMail({
         from: `${process.env.FROM_NAME} <${process.env.FROM_EMAIL}>`,
         to: email,
-        subject: '✅ Withdrawal Successful - Funds on the Way! | Pliz',
+        subject: '✅ Withdrawal Successful - Funds on the Way! | Plz',
         html,
       });
 
@@ -61,7 +61,7 @@ export class WithdrawalEmailService {
       await this.transporter.sendMail({
         from: `${process.env.FROM_NAME} <${process.env.FROM_EMAIL}>`,
         to: email,
-        subject: '❌ Withdrawal Failed - Action Required | Pliz',
+        subject: '❌ Withdrawal Failed - Action Required | Plz',
         html,
       });
 
@@ -113,7 +113,7 @@ export class WithdrawalEmailService {
 <body>
   <div class="container">
     <div class="header">
-      <div class="logo">pliz</div>
+      <div class="logo">plz</div>
       <div class="pending-icon">⏳</div>
       <h1>Withdrawal Pending</h1>
     </div>
@@ -153,7 +153,7 @@ export class WithdrawalEmailService {
     
     <div class="footer">
       <p>Thank you for your patience!</p>
-      <p>Questions? Contact <a href="mailto:support@pliz.app">support@pliz.app</a></p>
+      <p>Questions? Contact <a href="mailto:support@plz.app">support@plz.app</a></p>
     </div>
   </div>
 </body>
@@ -163,7 +163,7 @@ export class WithdrawalEmailService {
       await this.transporter.sendMail({
         from: `${process.env.FROM_NAME} <${process.env.FROM_EMAIL}>`,
         to: email,
-        subject: '⏳ Withdrawal Pending - Processing Soon | Pliz',
+        subject: '⏳ Withdrawal Pending - Processing Soon | Plz',
         html,
       });
 

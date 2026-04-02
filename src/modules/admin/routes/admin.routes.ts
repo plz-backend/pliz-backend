@@ -32,11 +32,26 @@ import { updateCategory } from '../controllers/categories/update_category';
 import { deleteCategory } from '../controllers/categories/delete_category';
 import { getCategories } from '../controllers/categories/get_categories';
 
+
+// Story Management
+import {
+  adminGetStories,
+  adminGetStoryById,
+  adminApproveStory,
+  adminRejectStory,
+  adminToggleVisibility,
+  adminDeleteStory,
+} from '../../admin/controllers/Story/admin-story.controller';
+import {
+  storyIdValidation,
+  rejectStoryValidation,
+} from '../../Story/validations/story.validation';
+import { validateRequest } from '../../auth/middleware/auth/validateRequest';
+
 const router = Router();
 
 // All admin routes require authentication + admin role
-router.use(authenticate);
-router.use(requireAdmin);
+router.use(authenticate, requireAdmin);
 
 // ============================================
 // USER MANAGEMENT
@@ -80,5 +95,16 @@ router.get('/dashboard/stats', getDashboardStats);
 // ACTIVITY LOG
 // ============================================
 router.get('/activity', getAdminActions);
+
+// ============================================
+// STORY MANAGEMENT
+// ============================================
+
+router.get('/', adminGetStories);                                                           // GET  /api/admin/stories?filter=pending
+router.get('/:id', storyIdValidation, validateRequest, adminGetStoryById);                        // GET  /api/admin/stories/:id
+router.patch('/:id/approve', storyIdValidation, validateRequest, adminApproveStory);              // PATCH /api/admin/stories/:id/approve
+router.patch('/:id/reject', rejectStoryValidation, validateRequest, adminRejectStory);            // PATCH /api/admin/stories/:id/reject
+router.patch('/:id/toggle-visibility', storyIdValidation, validateRequest, adminToggleVisibility);// PATCH /api/admin/stories/:id/toggle-visibility
+router.delete('/:id', storyIdValidation, validateRequest, adminDeleteStory);                      // DELETE /api/admin/stories/:id
 
 export default router;

@@ -12,6 +12,19 @@ const sendResponse = <T = any>(
   res.status(statusCode).json(response);
 };
 
+// ============================================
+// HELPER
+// ============================================
+const buildBegTitle = (
+  category: { name: string; icon: string | null } | null,
+  description: string | null
+): string => {
+  if (!category) return 'Help Request';
+  const icon = category.icon ? ` ${category.icon}` : '';
+  const desc = description ? ` — ${description}` : '';
+  return `${category.name}${icon}${desc}`;
+};
+
 interface BegParams {
   id: string;
 }
@@ -35,10 +48,13 @@ export const approveBeg = async (
       where: { id },
       select: {
         id: true,
-        title: true,
+        description: true,                // ← title removed
         approved: true,
         status: true,
         userId: true,
+        category: {                        // ← added
+          select: { name: true, icon: true },
+        },
         user: {
           select: {
             email: true,
@@ -49,18 +65,12 @@ export const approveBeg = async (
     });
 
     if (!beg) {
-      sendResponse(res, 404, {
-        success: false,
-        message: 'Beg not found',
-      });
+      sendResponse(res, 404, { success: false, message: 'Beg not found' });
       return;
     }
 
     if (beg.approved) {
-      sendResponse(res, 400, {
-        success: false,
-        message: 'Beg is already approved',
-      });
+      sendResponse(res, 400, { success: false, message: 'Beg is already approved' });
       return;
     }
 
@@ -74,15 +84,17 @@ export const approveBeg = async (
       },
     });
 
+    const begTitle = buildBegTitle(beg.category, beg.description);  // ← uses helper
+
     // Log admin action
     await AdminService.logAction({
       adminId,
       actionType: 'approve_beg',
       targetType: 'beg',
       targetId: id,
-      description: `Approved beg: ${beg.title}`,
+      description: `Approved beg: ${begTitle}`,                     // ← uses helper
       metadata: {
-        begTitle: beg.title,
+        begTitle,                                                     // ← uses helper
         userId: beg.userId,
         userEmail: beg.user.email,
       },
@@ -91,7 +103,7 @@ export const approveBeg = async (
 
     logger.info('Beg approved', {
       begId: id,
-      title: beg.title,
+      begTitle,                                                       // ← uses helper
       adminId,
     });
 

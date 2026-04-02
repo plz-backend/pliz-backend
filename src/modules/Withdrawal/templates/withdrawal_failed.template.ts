@@ -19,7 +19,7 @@ export const withdrawalFailedTemplate = (data: IWithdrawalFailedEmail): string =
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Withdrawal Failed - Pliz</title>
+  <title>Withdrawal Failed - Plz</title>
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
@@ -131,7 +131,7 @@ export const withdrawalFailedTemplate = (data: IWithdrawalFailedEmail): string =
   <div class="email-container">
     <div class="header">
       <!-- ✅ Logo Image -->
-      <img src="${logoUrl}" alt="Pliz" class="logo" />
+      <img src="${logoUrl}" alt="Plz" class="logo" />
       
       <div class="error-icon">❌</div>
       <h1>Withdrawal Failed</h1>
@@ -191,7 +191,7 @@ export const withdrawalFailedTemplate = (data: IWithdrawalFailedEmail): string =
 
     <div class="footer">
       <!-- ✅ Small footer logo -->
-      <img src="${logoUrl}" alt="Pliz" class="footer-logo" />
+      <img src="${logoUrl}" alt="Plz" class="footer-logo" />
       
       <p>Thank you for your patience.</p>
       <p style="margin-top: 20px; font-size: 12px; color: #adb5bd;">

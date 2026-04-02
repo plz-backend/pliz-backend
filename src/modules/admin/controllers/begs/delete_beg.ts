@@ -12,6 +12,19 @@ const sendResponse = <T = any>(
   res.status(statusCode).json(response);
 };
 
+// ============================================
+// HELPER
+// ============================================
+const buildBegTitle = (
+  category: { name: string; icon: string | null } | null,
+  description: string | null
+): string => {
+  if (!category) return 'Help Request';
+  const icon = category.icon ? ` ${category.icon}` : '';
+  const desc = description ? ` — ${description}` : '';
+  return `${category.name}${icon}${desc}`;
+};
+
 interface BegParams {
   id: string;
 }
@@ -32,10 +45,7 @@ export const deleteBeg = async (
     const ip = req.ip || req.headers['x-forwarded-for'] as string || 'unknown';
 
     if (!reason) {
-      sendResponse(res, 400, {
-        success: false,
-        message: 'Deletion reason is required',
-      });
+      sendResponse(res, 400, { success: false, message: 'Deletion reason is required' });
       return;
     }
 
@@ -44,9 +54,12 @@ export const deleteBeg = async (
       where: { id },
       select: {
         id: true,
-        title: true,
+        description: true,               // ← title removed
         amountRaised: true,
         userId: true,
+        category: {                       // ← added
+          select: { name: true, icon: true },
+        },
         user: {
           select: {
             email: true,
@@ -57,10 +70,7 @@ export const deleteBeg = async (
     });
 
     if (!beg) {
-      sendResponse(res, 404, {
-        success: false,
-        message: 'Beg not found',
-      });
+      sendResponse(res, 404, { success: false, message: 'Beg not found' });
       return;
     }
 
@@ -75,9 +85,9 @@ export const deleteBeg = async (
     }
 
     // Delete beg
-    await prisma.beg.delete({
-      where: { id },
-    });
+    await prisma.beg.delete({ where: { id } });
+
+    const begTitle = buildBegTitle(beg.category, beg.description);  // ← uses helper
 
     // Log admin action
     await AdminService.logAction({
@@ -85,9 +95,9 @@ export const deleteBeg = async (
       actionType: 'delete_beg',
       targetType: 'beg',
       targetId: id,
-      description: `Deleted beg: ${beg.title}. Reason: ${reason}`,
+      description: `Deleted beg: ${begTitle}. Reason: ${reason}`,   // ← uses helper
       metadata: {
-        begTitle: beg.title,
+        begTitle,                                                      // ← uses helper
         userId: beg.userId,
         userEmail: beg.user.email,
         reason,
@@ -97,15 +107,12 @@ export const deleteBeg = async (
 
     logger.warn('Beg deleted by admin', {
       begId: id,
-      title: beg.title,
+      begTitle,                                                        // ← uses helper
       reason,
       adminId,
     });
 
-    sendResponse(res, 200, {
-      success: true,
-      message: 'Beg deleted successfully',
-    });
+    sendResponse(res, 200, { success: true, message: 'Beg deleted successfully' });
   } catch (error: any) {
     logger.error('Delete beg error', { error: error.message });
     sendResponse(res, 500, {
