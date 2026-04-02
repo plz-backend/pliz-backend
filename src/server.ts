@@ -6,11 +6,11 @@ import { EmailService } from './modules/auth/services/emailService';
 import { CategoryService } from './modules/Beg/services/category.service';
 import { initializeSocket } from './config/socket';
 import { initializeQueues } from './queue';
-import {donationWorker} from '../src/queue/processors/donation.processor';
-import {withdrawalWorker} from '../src/queue/processors/withdrawal.processor';
-import {emailWorker} from '../src/queue/processors/email.processor';
-import {trustScoreWorker} from '../src/queue/processors/trust-score.processor';
-import {begExpiryWorker} from '../src/queue/processors/beg-expiry.processor';  
+import {donationWorker} from './queue/processors/donation.processor';
+import {withdrawalWorker} from './queue/processors/withdrawal.processor';
+import {emailWorker} from './queue/processors/email.processor';
+import {trustScoreWorker} from './queue/processors/trust-score.processor';
+import {begExpiryWorker} from './queue/processors/beg-expiry.processor';  
 import logger from './config/logger';
 import { createApp } from './app';
 

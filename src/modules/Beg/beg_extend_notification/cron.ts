@@ -1,7 +1,7 @@
 import cron from 'node-cron';
 import { BegService } from '../../Beg/services/beg.service';
 import { BegNotificationService } from '../beg_extend_notification/beg-notification.service';
-import logger from '../../../../src/config/logger';
+import logger from '../../../config/logger';
 
 // Run every hour
 cron.schedule('0 * * * *', async () => {
