@@ -42,7 +42,15 @@ export class EmailService {
         return;
       }
 
-      const verificationUrl = `${process.env.FRONTEND_URL}/verify-email?token=${token}`;
+      const frontendBase = (
+        process.env.FRONTEND_URL ||
+        process.env.EXPO_PUBLIC_FRONTEND_URL ||
+        ''
+      ).replace(/\/$/, '');
+      const apiBase = (process.env.BASE_URL || '').replace(/\/$/, '');
+      const verificationUrl = frontendBase
+        ? `${frontendBase}/verify-email?token=${encodeURIComponent(token)}`
+        : `${apiBase}/api/auth/verify-email?token=${encodeURIComponent(token)}`;
 
       const mailOptions = {
         from: `"Plz App" <${process.env.EMAIL_FROM || process.env.EMAIL_USER}>`,
@@ -119,7 +127,7 @@ export class EmailService {
         return;
       }
 
-      const resetUrl = `${process.env.FRONTEND_URL}/reset-password?token=${token}`;
+      const resetUrl = `${process.env.BASE_URL}/api/auth/reset-password?token=${token}`;
 
       const mailOptions = {
         from: `"Plz App" <${process.env.EMAIL_FROM || process.env.EMAIL_USER}>`,

@@ -1,7 +1,9 @@
 import { Request, Response } from 'express';
 import { UserService } from '../../services/user.service';
 import { CacheService } from '../../services/cacheService';
-import { IApiResponse } from '../../types/user.interface';
+import { createSessionAndTokens } from '../../services/create_session.service';
+import { setRefreshTokenCookie } from '../../utils/refresh_cookie';
+import { IApiResponse, IUserResponse } from '../../types/user.interface';
 import logger from '../../../../config/logger';
 
 /**
@@ -15,9 +17,58 @@ const sendResponse = <T = any>(
   res.status(statusCode).json(response);
 };
 
+function getFrontendBase(): string {
+  return (
+    process.env.FRONTEND_URL ||
+    process.env.EXPO_PUBLIC_FRONTEND_URL ||
+    ''
+  ).replace(/\/$/, '');
+}
+
+/**
+ * Browser tab navigation to the API URL (old emails) → send user to the web app.
+ * SPA / fetch uses Sec-Fetch-Mode: cors and gets JSON.
+ */
+function shouldRedirectBrowserToSpa(req: Request): boolean {
+  if (req.query.api === '1' || req.query.format === 'json') {
+    return false;
+  }
+  const sec =
+    req.get('sec-fetch-mode') || req.get('Sec-Fetch-Mode') || '';
+  return sec === 'navigate';
+}
+
+function toUserResponse(user: {
+  id: string;
+  username: string;
+  email: string;
+  role: IUserResponse['role'];
+  isEmailVerified: boolean;
+  emailVerifiedAt: Date | null;
+  isProfileComplete: boolean;
+  isSuspended: boolean;
+  isUnderInvestigation: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}): IUserResponse {
+  return {
+    id: user.id,
+    username: user.username,
+    email: user.email,
+    role: user.role,
+    isEmailVerified: user.isEmailVerified,
+    emailVerifiedAt: user.emailVerifiedAt,
+    isProfileComplete: user.isProfileComplete,
+    isSuspended: user.isSuspended,
+    isUnderInvestigation: user.isUnderInvestigation,
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt,
+  };
+}
+
 /**
  * @route   GET /api/auth/verify-email
- * @desc    Verify user email with token
+ * @desc    Verify user email with token; returns session (same shape as login).
  * @access  Public
  */
 export const verifyEmail = async (
@@ -36,13 +87,23 @@ export const verifyEmail = async (
       return;
     }
 
+    const frontendBase = getFrontendBase();
+    if (frontendBase && shouldRedirectBrowserToSpa(req)) {
+      res.redirect(
+        302,
+        `${frontendBase}/verify-email?token=${encodeURIComponent(token)}`
+      );
+      return;
+    }
+
     logger.info('Email verification attempt', { token: token.substring(0, 10) });
 
-    // Verify token from Redis cache
     const email = await CacheService.verifyEmailToken(token);
 
     if (!email) {
-      logger.warn('Invalid or expired verification token', { token: token.substring(0, 10) });
+      logger.warn('Invalid or expired verification token', {
+        token: token.substring(0, 10),
+      });
       const response: IApiResponse = {
         success: false,
         message: 'Invalid or expired verification token',
@@ -51,7 +112,6 @@ export const verifyEmail = async (
       return;
     }
 
-    // Find user
     const user = await UserService.findByEmail(email);
 
     if (!user) {
@@ -64,29 +124,64 @@ export const verifyEmail = async (
       return;
     }
 
-    // Check if already verified
-    if (user.isEmailVerified) {
-      logger.info('Email already verified', { email, userId: user.id });
+    if (user.isSuspended) {
+      logger.warn('Email verification blocked: account suspended', {
+        userId: user.id,
+        email,
+      });
       const response: IApiResponse = {
-        success: true,
-        message: 'Email is already verified. You can login.',
+        success: false,
+        message:
+          'Your account has been suspended. Please contact support.',
       };
-      sendResponse(res, 200, response);
+      sendResponse(res, 403, response);
       return;
     }
 
-    // Verify email - this will set both isEmailVerified and emailVerifiedAt
-    await UserService.verifyEmail(email);
+    let currentUser = user;
 
-    // Delete verification token from cache
-    await CacheService.deleteEmailToken(email);
+    if (user.isEmailVerified) {
+      logger.info('Email already verified', { email, userId: user.id });
+      await CacheService.deleteEmailToken(email);
+    } else {
+      const updated = await UserService.verifyEmail(email);
+      if (!updated) {
+        const response: IApiResponse = {
+          success: false,
+          message: 'Email verification failed. Please try again.',
+        };
+        sendResponse(res, 500, response);
+        return;
+      }
+      await CacheService.deleteEmailToken(email);
+      currentUser = updated;
+      logger.info('Email verified successfully', { email, userId: user.id });
+    }
 
-    logger.info('Email verified successfully', { email, userId: user.id });
+    const { accessToken, refreshToken } = await createSessionAndTokens(
+      req,
+      currentUser
+    );
 
-    const response: IApiResponse = {
+    const userResponse = toUserResponse(currentUser);
+
+    const response: IApiResponse<{
+      user: IUserResponse;
+      accessToken: string;
+      refreshToken: string;
+    }> = {
       success: true,
-      message: 'Email verified successfully! You can now login.',
+      message: user.isEmailVerified
+        ? 'Email already verified. You are signed in.'
+        : 'Email verified successfully!',
+      data: {
+        user: userResponse,
+        accessToken,
+        refreshToken,
+      },
     };
+
+    setRefreshTokenCookie(res, refreshToken);
     sendResponse(res, 200, response);
   } catch (error: any) {
     logger.error('Email verification error', {

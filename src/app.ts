@@ -1,4 +1,5 @@
 import express, { Express, Request, Response } from 'express';
+import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
@@ -30,13 +31,23 @@ export const createApp = (): Express => {
   // Security middleware
   app.use(helmet());
 
-  // CORS
+  // CORS — comma-separated ALLOWED_ORIGINS for staging + production web origins (credentialed cookies)
+  const corsOrigins = process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean)
+    : [];
   app.use(
     cors({
-      origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+      origin:
+        corsOrigins.length === 0
+          ? undefined
+          : corsOrigins.length === 1
+            ? corsOrigins[0]
+            : corsOrigins,
       credentials: true,
     })
   );
+
+  app.use(cookieParser());
 
   // Body parsing
   app.use(express.json());

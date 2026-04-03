@@ -3,6 +3,7 @@ import { CacheService } from '../../services/cacheService';
 import logger from '../../../../config/logger';
 import { IApiResponse } from '../../types/user.interface';
 import { SessionService } from '../../services/session.service';
+import { clearRefreshTokenCookie } from '../../utils/refresh_cookie';
 
 
 
@@ -57,6 +58,8 @@ export const logout = async (req: Request, res: Response): Promise<void> => {
     }
 
     logger.info('User logged out successfully', { userId, sessionId });
+
+    clearRefreshTokenCookie(res);
 
     const response: IApiResponse = {
       success: true,

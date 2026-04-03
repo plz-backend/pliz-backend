@@ -8,6 +8,10 @@ const connection = {
   host: process.env.REDIS_HOST || 'localhost',
   port: parseInt(process.env.REDIS_PORT || '6379'),
   password: process.env.REDIS_PASSWORD,
+  tls: process.env.REDIS_TLS === 'true' ? {} : undefined,
+  retryStrategy: (times: number) => Math.min(times * 500, 5000),
+  maxRetriesPerRequest: null,
+  enableReadyCheck: false,
 };
 
 export const withdrawalWorker = new Worker<IWithdrawalJob>(
@@ -36,7 +40,10 @@ export const withdrawalWorker = new Worker<IWithdrawalJob>(
 );
 
 withdrawalWorker.on('completed', (job) => {
-  logger.info('Withdrawal job completed', { jobId: job.id });
+  logger.info('Withdrawal job completed', {
+    jobId: job.id,
+    withdrawalId: job.data.withdrawalId,
+  });
 });
 
 withdrawalWorker.on('failed', (job, error) => {
@@ -50,6 +57,13 @@ withdrawalWorker.on('failed', (job, error) => {
 
 withdrawalWorker.on('error', (error) => {
   logger.error('Withdrawal worker error', { error: error.message });
+});
+
+// ← CRITICAL for money app — stalled means user may not have received their money
+withdrawalWorker.on('stalled', (jobId) => {
+  logger.error('Withdrawal job stalled — user may not have received their money', {
+    jobId,
+  });
 });
 
 logger.info('Withdrawal worker started');

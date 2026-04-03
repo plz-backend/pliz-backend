@@ -1,7 +1,7 @@
-import prisma from '../../src/config/database';
-import { ITrustScore, ITrustProgress } from '../modules/Beg/types/beg.interface'; 
-import { getTrustTierConfig } from '../../src/config/trust_tiers';
-import logger from '../../src/config/logger';
+import prisma from '../config/database';
+import { ITrustScore, ITrustProgress } from '../modules/Beg/types/beg.interface';
+import { getTrustTierConfig } from '../config/trust_tiers';
+import logger from '../config/logger';
 import redisClient from '../config/redis';
 
 /**

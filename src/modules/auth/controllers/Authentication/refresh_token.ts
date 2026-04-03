@@ -4,6 +4,7 @@ import { Request, Response } from 'express';
 import { UserService } from '../../services/user.service';
 import { SessionService } from '../../services/session.service';
 import { IUserResponse, IApiResponse } from '../../types/user.interface';
+import { getRefreshTokenFromRequest } from '../../utils/refresh_cookie';
 import logger from '../../../../config/logger';
 
 /**
@@ -27,7 +28,7 @@ export const refreshToken = async (
   res: Response
 ): Promise<void> => {
   try {
-    const { refreshToken: token } = req.body;
+    const token = getRefreshTokenFromRequest(req);
 
     if (!token) {
       const response: IApiResponse = {
@@ -40,12 +41,9 @@ export const refreshToken = async (
 
     logger.info('Refresh token request', { ip: req.ip });
 
-    // Verify refresh token
-    let decoded;
-    try {
-      decoded = TokenService.verifyRefreshToken(token);
-    } catch (error: any) {
-      logger.warn('Invalid refresh token', { error: error.message });
+    const decoded = TokenService.verifyRefreshToken(token);
+    if (!decoded) {
+      logger.warn('Invalid or expired refresh token');
       const response: IApiResponse = {
         success: false,
         message: 'Invalid or expired refresh token',
@@ -54,7 +52,7 @@ export const refreshToken = async (
       return;
     }
 
-    const userId = decoded?.userId;
+    const userId = decoded.userId;
     const email = decoded?.email;
 
     if (!userId || !email) {

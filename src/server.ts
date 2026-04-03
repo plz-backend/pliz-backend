@@ -6,11 +6,11 @@ import { EmailService } from './modules/auth/services/emailService';
 import { CategoryService } from './modules/Beg/services/category.service';
 import { initializeSocket } from './config/socket';
 import { initializeQueues } from './queue';
-import {donationWorker} from '../src/queue/processors/donation.processor';
-import {withdrawalWorker} from '../src/queue/processors/withdrawal.processor';
-import {emailWorker} from '../src/queue/processors/email.processor';
-import {trustScoreWorker} from '../src/queue/processors/trust-score.processor';
-import {begExpiryWorker} from '../src/queue/processors/beg-expiry.processor';  
+import {donationWorker} from './queue/processors/donation.processor';
+import {withdrawalWorker} from './queue/processors/withdrawal.processor';
+import {emailWorker} from './queue/processors/email.processor';
+import {trustScoreWorker} from './queue/processors/trust-score.processor';
+import {begExpiryWorker} from './queue/processors/beg-expiry.processor';  
 import logger from './config/logger';
 import { createApp } from './app';
 
@@ -68,15 +68,22 @@ const startServer = async (): Promise<void> => {
 ✅ Server started successfully
 
 📍 Port:          ${PORT}
-🌐 API:           http://localhost:${PORT}/api
-💚 Health:        http://localhost:${PORT}/health
-🔐 Auth:          http://localhost:${PORT}/api/auth
-📱 Sessions:      http://localhost:${PORT}/api/sessions
-💰 Donations:     http://localhost:${PORT}/api/donations
-🔔 Notifications: http://localhost:${PORT}/api/notifications
-📖 Stories:       http://localhost:${PORT}/api/stories
-🪝 Webhook:       http://localhost:${PORT}/webhooks/paystack
-📊 Queue Health:  http://localhost:${PORT}/api/admin/queues/health
+🌐 API:           ${process.env.BASE_URL}:${PORT}/api
+💚 Health:        ${process.env.BASE_URL}:${PORT}/health
+🔐 Auth:          ${process.env.BASE_URL}:${PORT}/api/auth
+📱 Sessions:      ${process.env.BASE_URL}:${PORT}/api/sessions
+💰 Donations:     ${process.env.BASE_URL}:${PORT}/api/donations
+🔔 Notifications: ${process.env.BASE_URL}:${PORT}/api/notifications
+📖 Stories:       ${process.env.BASE_URL}:${PORT}/api/stories
+🪝 Webhook:       ${process.env.BASE_URL}:${PORT}/webhooks/paystack
+📊 Queue Health:  ${process.env.BASE_URL}:${PORT}/api/admin/queues/health
+🌐 API:           ${process.env.BASE_URL}:${PORT}/api
+💚 Health:        ${process.env.BASE_URL}:${PORT}/health
+🔐 Auth:          ${process.env.BASE_URL}:${PORT}/api/auth
+📱 Sessions:      ${process.env.BASE_URL}:${PORT}/api/sessions
+💰 Donations:     ${process.env.BASE_URL}:${PORT}/api/donations
+🔔 Notifications: ${process.env.BASE_URL}:${PORT}/api/notifications
+🪝 Webhook:       ${process.env.BASE_URL}:${PORT}/webhooks/paystack
 
 Environment: ${process.env.NODE_ENV || 'development'}
 Database:    PostgreSQL

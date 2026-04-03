@@ -1,0 +1,24 @@
+# Dependencies & build output
+node_modules
+dist
+
+# Env & secrets (inject at runtime / CI)
+.env
+.env.*
+!.env.example
+
+# Git & IDE
+.git
+.github
+.gitignore
+.cursor
+*.md
+
+# Tests & misc
+coverage
+*.log
+logs
+
+# Local Prisma (schema is copied explicitly in Dockerfile; ignore local DB artifacts)
+prisma/*.db
+prisma/*.db-journal

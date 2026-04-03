@@ -1,7 +1,7 @@
-import prisma from '../../src/config/database';
-import { ICooldownInfo } from '../../src/modules/Beg/types/beg.interface';
+import prisma from '../config/database';
+import { ICooldownInfo } from '../modules/Beg/types/beg.interface';
 import { getTrustTierConfig } from '../config/trust_tiers';
-import logger from '../../src/config/logger';
+import logger from '../config/logger';
 import redisClient from '../config/redis';
 
 /**

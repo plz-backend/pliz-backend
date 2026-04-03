@@ -1,8 +1,7 @@
-import { TokenService } from '../../services/tokenService';
-import { CacheService } from '../../services/cacheService';
 import { Request, Response } from 'express';
 import { UserService } from '../../services/user.service';
-import prisma from '../../../../config/database';  // 
+import { createSessionAndTokens } from '../../services/create_session.service';
+import { setRefreshTokenCookie } from '../../utils/refresh_cookie';
 import {
   ILoginRequest,
   IUserResponse,
@@ -101,91 +100,12 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // ============================================
-    // PREPARE SESSION DATA
-    // ============================================
-    const userAgent = req.headers['user-agent'] || 'Unknown';
-    const ipAddress = (
-      req.ip ||
-      req.socket.remoteAddress ||
-      'Unknown'
-    ).replace('::ffff:', '');
-
-    // ✅ Generate a temporary session ID for token generation
-    const crypto = require('crypto');
-    const tempSessionId = crypto.randomUUID();
-
-    // ============================================
-    // GENERATE REFRESH TOKEN FIRST
-    // ============================================
-    // ✅ Generate refresh token BEFORE creating session
-    const refreshToken = TokenService.generateRefreshToken(
-      user.id,
-      user.email,
-      user.role,
-      tempSessionId  // Use temp ID first
-    );
-
-    // ============================================
-    // CREATE SESSION WITH REFRESH TOKEN
-    // ============================================
-    // ✅ Create session in database WITH refreshToken
-    const session = await prisma.session.create({
-      data: {
-        userId: user.id,
-        userAgent,
-        ipAddress,
-        refreshToken,  // ✅ Include refresh token
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
-      },
-    });
-
-    // ============================================
-    // GENERATE TOKENS WITH REAL SESSION ID
-    // ============================================
-    // ✅ Generate access token with real session ID
-    const accessToken = TokenService.generateAccessToken(
-      user.id,
-      user.email,
-      user.role,
-      session.id  // Real session ID
-    );
-
-    // ✅ Re-generate refresh token with real session ID
-    const finalRefreshToken = TokenService.generateRefreshToken(
-      user.id,
-      user.email,
-      user.role,
-      session.id  // Real session ID
-    );
-
-    // ✅ Update session with correct refresh token
-    await prisma.session.update({
-      where: { id: session.id },
-      data: { refreshToken: finalRefreshToken },
-    });
-
-    // ✅ Store refresh token in Redis cache
-    await CacheService.setRefreshToken(session.id, finalRefreshToken);
-
-    // ============================================
-    // CACHE USER SESSION (OPTIONAL)
-    // ============================================
-    await CacheService.cacheUserSession(
-      user.id,
-      {
-        email: user.email,
-        username: user.username,
-        role: user.role,
-        lastLogin: new Date(),
-      },
-      15 * 60 // 15 minutes
-    );
+    const { accessToken, refreshToken: finalRefreshToken } =
+      await createSessionAndTokens(req, user);
 
     logger.info('Login successful', {
       userId: user.id,
       email,
-      sessionId: session.id,
       role: user.role,
     });
 
@@ -220,6 +140,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       },
     };
 
+    setRefreshTokenCookie(res, finalRefreshToken);
     sendResponse(res, 200, response);
   } catch (error: any) {
     logger.error('Login error', {

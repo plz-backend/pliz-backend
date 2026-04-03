@@ -156,10 +156,10 @@ export const resendVerificationValidation = [
 /**
  * Refresh token validation
  */
+/** Body optional when refresh token is sent via httpOnly cookie (web). */
 export const refreshTokenValidation = [
   body('refreshToken')
-    .notEmpty()
-    .withMessage('Refresh token is required')
+    .optional()
     .isString()
     .withMessage('Refresh token must be a string'),
 ];
