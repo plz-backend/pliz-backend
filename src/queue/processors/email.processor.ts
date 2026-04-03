@@ -8,6 +8,10 @@ const connection = {
   host: process.env.REDIS_HOST || 'localhost',
   port: parseInt(process.env.REDIS_PORT || '6379'),
   password: process.env.REDIS_PASSWORD,
+  tls: process.env.REDIS_TLS === 'true' ? {} : undefined,
+  retryStrategy: (times: number) => Math.min(times * 500, 5000),
+  maxRetriesPerRequest: null,
+  enableReadyCheck: false,
 };
 
 export const emailWorker = new Worker<IEmailJob>(
@@ -37,7 +41,7 @@ export const emailWorker = new Worker<IEmailJob>(
   },
   {
     connection,
-    concurrency: 10,  // Emails can be sent in parallel
+    concurrency: 10,
   }
 );
 
@@ -56,6 +60,11 @@ emailWorker.on('failed', (job, error) => {
 
 emailWorker.on('error', (error) => {
   logger.error('Email worker error', { error: error.message });
+});
+
+// ← stalled means user may not have received their email notification
+emailWorker.on('stalled', (jobId) => {
+  logger.warn('Email job stalled', { jobId });
 });
 
 logger.info('Email worker started');

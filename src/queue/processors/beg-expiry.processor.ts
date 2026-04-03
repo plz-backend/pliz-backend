@@ -9,6 +9,10 @@ const connection = {
   host: process.env.REDIS_HOST || 'localhost',
   port: parseInt(process.env.REDIS_PORT || '6379'),
   password: process.env.REDIS_PASSWORD,
+  tls: process.env.REDIS_TLS === 'true' ? {} : undefined,
+  retryStrategy: (times: number) => Math.min(times * 500, 5000),
+  maxRetriesPerRequest: null,
+  enableReadyCheck: false,
 };
 
 export const begExpiryWorker = new Worker<IBegExpiryJob>(
@@ -26,15 +30,24 @@ export const begExpiryWorker = new Worker<IBegExpiryJob>(
   },
   {
     connection,
-    concurrency: 1,   // Only 1 expiry job at a time
+    concurrency: 1,
   }
 );
+
+begExpiryWorker.on('completed', (job) => {
+  logger.info('Beg expiry job completed', { jobId: job.id });
+});
 
 begExpiryWorker.on('failed', (job, error) => {
   logger.error('Beg expiry job failed', {
     jobId: job?.id,
     error: error.message,
   });
+});
+
+// ← THIS IS THE IMPORTANT ONE — prevents ECONNRESET from crashing the worker
+begExpiryWorker.on('error', (error) => {
+  logger.error('Beg expiry worker error', { error: error.message });
 });
 
 logger.info('Beg expiry worker started');
