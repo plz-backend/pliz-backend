@@ -30,12 +30,31 @@ export const trustScoreWorker = new Worker<ITrustScoreJob>(
   }
 );
 
+trustScoreWorker.on('completed', (job) => {
+  logger.info('Trust score job completed', {
+    jobId: job.id,
+    userId: job.data.userId,
+    action: job.data.action,
+  });
+});
+
 trustScoreWorker.on('failed', (job, error) => {
   logger.error('Trust score job failed', {
     jobId: job?.id,
     userId: job?.data?.userId,
+    action: job?.data?.action,
     error: error.message,
   });
+});
+
+// ← prevents ECONNRESET from crashing the worker
+trustScoreWorker.on('error', (error) => {
+  logger.error('Trust score worker error', { error: error.message });
+});
+
+// ← stalled means trust score may be stale after a donation
+trustScoreWorker.on('stalled', (jobId) => {
+  logger.warn('Trust score job stalled', { jobId });
 });
 
 logger.info('Trust score worker started');

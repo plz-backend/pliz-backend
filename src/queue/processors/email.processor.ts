@@ -34,7 +34,7 @@ export const emailWorker = new Worker<IEmailJob>(
   },
   {
     connection,
-    concurrency: 10,  // Emails can be sent in parallel
+    concurrency: 10,
   }
 );
 
@@ -53,6 +53,11 @@ emailWorker.on('failed', (job, error) => {
 
 emailWorker.on('error', (error) => {
   logger.error('Email worker error', { error: error.message });
+});
+
+// ← stalled means user may not have received their email notification
+emailWorker.on('stalled', (jobId) => {
+  logger.warn('Email job stalled', { jobId });
 });
 
 logger.info('Email worker started');

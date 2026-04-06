@@ -23,15 +23,24 @@ export const begExpiryWorker = new Worker<IBegExpiryJob>(
   },
   {
     connection,
-    concurrency: 1,   // Only 1 expiry job at a time
+    concurrency: 1,
   }
 );
+
+begExpiryWorker.on('completed', (job) => {
+  logger.info('Beg expiry job completed', { jobId: job.id });
+});
 
 begExpiryWorker.on('failed', (job, error) => {
   logger.error('Beg expiry job failed', {
     jobId: job?.id,
     error: error.message,
   });
+});
+
+// ← THIS IS THE IMPORTANT ONE — prevents ECONNRESET from crashing the worker
+begExpiryWorker.on('error', (error) => {
+  logger.error('Beg expiry worker error', { error: error.message });
 });
 
 logger.info('Beg expiry worker started');

@@ -33,7 +33,10 @@ export const withdrawalWorker = new Worker<IWithdrawalJob>(
 );
 
 withdrawalWorker.on('completed', (job) => {
-  logger.info('Withdrawal job completed', { jobId: job.id });
+  logger.info('Withdrawal job completed', {
+    jobId: job.id,
+    withdrawalId: job.data.withdrawalId,
+  });
 });
 
 withdrawalWorker.on('failed', (job, error) => {
@@ -47,6 +50,13 @@ withdrawalWorker.on('failed', (job, error) => {
 
 withdrawalWorker.on('error', (error) => {
   logger.error('Withdrawal worker error', { error: error.message });
+});
+
+// ← CRITICAL for money app — stalled means user may not have received their money
+withdrawalWorker.on('stalled', (jobId) => {
+  logger.error('Withdrawal job stalled — user may not have received their money', {
+    jobId,
+  });
 });
 
 logger.info('Withdrawal worker started');

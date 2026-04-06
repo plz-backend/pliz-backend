@@ -10,7 +10,7 @@ const connection = bullMQConnection;
 export const donationWorker = new Worker<IDonationJob>(
   QUEUES.DONATIONS,
   async (job: Job<IDonationJob>) => {
-    logger.info(`Processing donation job`, {
+    logger.info('Processing donation job', {
       jobId: job.id,
       reference: job.data.paymentReference,
       attempt: job.attemptsMade + 1,
@@ -18,14 +18,14 @@ export const donationWorker = new Worker<IDonationJob>(
 
     await DonationService.processDonation(job.data);
 
-    logger.info(`Donation job completed`, {
+    logger.info('Donation job completed', {
       jobId: job.id,
       reference: job.data.paymentReference,
     });
   },
   {
     connection,
-    concurrency: 5,   // Process 5 donations at the same time
+    concurrency: 5,
   }
 );
 
@@ -47,6 +47,14 @@ donationWorker.on('failed', (job, error) => {
 
 donationWorker.on('error', (error) => {
   logger.error('Donation worker error', { error: error.message });
+});
+
+// ← IMPORTANT for money app — stalled means job was picked up but never finished
+// Could mean user paid but donation not recorded
+donationWorker.on('stalled', (jobId) => {
+  logger.error('Donation job stalled — user may have paid but donation not recorded', {
+    jobId,
+  });
 });
 
 logger.info('Donation worker started');

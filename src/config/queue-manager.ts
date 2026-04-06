@@ -22,7 +22,7 @@ export const notificationQueue = new Queue(QUEUES.NOTIFICATIONS, {
   connection,
   defaultJobOptions: {
     ...QUEUE_CONFIG.defaultJobOptions,
-    attempts: 5,                    // Notifications get more retries
+    attempts: 5,
   },
 });
 
