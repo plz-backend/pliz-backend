@@ -1,14 +1,11 @@
 import { Worker, Job } from 'bullmq';
+import { bullMQConnection } from '../../config/bullmq-connection';
 import { QUEUES } from '../../config/queue';
 import { WithdrawalEmailService } from '../../modules/Withdrawal/services/withdrawal_email.service';
 import { IEmailJob } from '../job.types';
 import logger from '../../config/logger';
 
-const connection = {
-  host: process.env.REDIS_HOST || 'localhost',
-  port: parseInt(process.env.REDIS_PORT || '6379'),
-  password: process.env.REDIS_PASSWORD,
-};
+const connection = bullMQConnection;
 
 export const emailWorker = new Worker<IEmailJob>(
   QUEUES.EMAILS,

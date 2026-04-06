@@ -1,12 +1,9 @@
-import { Queue, Worker, QueueEvents } from 'bullmq';
+import { Queue } from 'bullmq';
+import { bullMQConnection } from './bullmq-connection';
 import { QUEUES, QUEUE_CONFIG } from './queue';
 import logger from './logger';
 
-const connection = {
-  host: process.env.REDIS_HOST || 'localhost',
-  port: parseInt(process.env.REDIS_PORT || '6379'),
-  password: process.env.REDIS_PASSWORD,
-};
+const connection = bullMQConnection;
 
 // ============================================
 // CREATE QUEUES

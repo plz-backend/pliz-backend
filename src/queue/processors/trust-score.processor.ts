@@ -1,14 +1,11 @@
 import { Worker, Job } from 'bullmq';
+import { bullMQConnection } from '../../config/bullmq-connection';
 import { QUEUES } from '../../config/queue';
 import { TrustScoreService } from '../../services/trust_score.service';
 import { ITrustScoreJob } from '../job.types';
 import logger from '../../config/logger';
 
-const connection = {
-  host: process.env.REDIS_HOST || 'localhost',
-  port: parseInt(process.env.REDIS_PORT || '6379'),
-  password: process.env.REDIS_PASSWORD,
-};
+const connection = bullMQConnection;
 
 export const trustScoreWorker = new Worker<ITrustScoreJob>(
   QUEUES.TRUST_SCORE,
