@@ -1,4 +1,4 @@
-import dotenv from 'dotenv';
+import 'dotenv/config';
 import http from 'http';
 import { connectDB, disconnectDB } from './config/database';
 import redisClient from './config/redis';
@@ -13,8 +13,6 @@ import {trustScoreWorker} from './queue/processors/trust-score.processor';
 import {begExpiryWorker} from './queue/processors/beg-expiry.processor';  
 import logger from './config/logger';
 import { createApp } from './app';
-
-dotenv.config();
 
 const startServer = async (): Promise<void> => {
   try {

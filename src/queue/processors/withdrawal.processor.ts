@@ -1,18 +1,11 @@
 import { Worker, Job } from 'bullmq';
+import { bullMQConnection } from '../../config/bullmq-connection';
 import { QUEUES } from '../../config/queue';
 import { WithdrawalService } from '../../modules/Withdrawal/services/withdrawal.service';
 import { IWithdrawalJob } from '../job.types';
 import logger from '../../config/logger';
 
-const connection = {
-  host: process.env.REDIS_HOST || 'localhost',
-  port: parseInt(process.env.REDIS_PORT || '6379'),
-  password: process.env.REDIS_PASSWORD,
-  tls: process.env.REDIS_TLS === 'true' ? {} : undefined,
-  retryStrategy: (times: number) => Math.min(times * 500, 5000),
-  maxRetriesPerRequest: null,
-  enableReadyCheck: false,
-};
+const connection = bullMQConnection;
 
 export const withdrawalWorker = new Worker<IWithdrawalJob>(
   QUEUES.WITHDRAWALS,
