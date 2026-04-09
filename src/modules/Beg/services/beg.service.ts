@@ -10,6 +10,9 @@ const MAX_DESCRIPTION_WORDS = 40;
 const MAX_DESCRIPTION_LENGTH = 300;
 const VALID_EXPIRY_HOURS = [24, 72, 168] as const; // 24h, 72h, 7 days
 
+/** Pending begs must not count down or hit the expiry cron; real `expiresAt` is set on admin approval. */
+const BEG_EXPIRY_PENDING_PLACEHOLDER = new Date('2099-12-31T23:59:59.999Z');
+
 export class BegService {
 
   /**
@@ -69,9 +72,8 @@ export class BegService {
         throw new Error(`You have reached your daily limit of ${requestCountInfo.limit} requests`);
       }
 
-      // Calculate expiry date based on user's choice
-      const expiresAt = new Date();
-      expiresAt.setHours(expiresAt.getHours() + expiryHours);
+      // Expiry countdown starts when the beg is approved, not at creation
+      const expiresAt = BEG_EXPIRY_PENDING_PLACEHOLDER;
 
       // Create the beg
       const beg = await prisma.beg.create({
@@ -164,6 +166,7 @@ export class BegService {
       if (!beg) throw new Error('Beg not found');
       if (beg.userId !== userId) throw new Error('Unauthorized to extend this beg');
       if (beg.status !== 'active') throw new Error('Can only extend active begs');
+      if (!beg.approved) throw new Error('Can only extend approved requests');
       if (!VALID_EXPIRY_HOURS.includes(expiryHours as any)) {
         throw new Error('Invalid expiry hours. Must be 24, 72, or 168');
       }
@@ -484,7 +487,11 @@ export class BegService {
   static async expireOldBegs(): Promise<number> {
     try {
       const result = await prisma.beg.updateMany({
-        where: { status: 'active', expiresAt: { lt: new Date() } },
+        where: {
+          status: 'active',
+          approved: true,
+          expiresAt: { lt: new Date() },
+        },
         data: { status: 'expired' },
       });
 
@@ -501,7 +508,9 @@ export class BegService {
    */
   private static transformBegResponse(beg: any): IBegResponse {
     const now = new Date();
-    const timeRemaining = this.calculateTimeRemaining(beg.expiresAt, now);
+    const timeRemaining = !beg.approved
+      ? 'Pending approval'
+      : this.calculateTimeRemaining(beg.expiresAt, now);
     const percentFunded =
       Number(beg.amountRequested) > 0
         ? Math.round((Number(beg.amountRaised) / Number(beg.amountRequested)) * 100)
