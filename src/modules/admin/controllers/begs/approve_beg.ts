@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import prisma from '../../../../config/database';
 import { AdminService } from '../../services/admin.service';
 import { IApiResponse } from '../../../auth/types/user.interface';
+import { NotificationService } from '../../../notifications/services/notification.service';
 import logger from '../../../../config/logger';
 
 const sendResponse = <T = any>(
@@ -52,6 +53,7 @@ export const approveBeg = async (
         approved: true,
         status: true,
         userId: true,
+        expiryHours: true,
         category: {                        // ← added
           select: { name: true, icon: true },
         },
@@ -74,13 +76,17 @@ export const approveBeg = async (
       return;
     }
 
-    // Approve beg
+    const expiresAt = new Date();
+    expiresAt.setHours(expiresAt.getHours() + beg.expiryHours);
+
+    // Approve beg — countdown starts from approval, not submission
     const updatedBeg = await prisma.beg.update({
       where: { id },
       data: {
         approved: true,
         approvedAt: new Date(),
         approvedBy: adminId,
+        expiresAt,
       },
     });
 
@@ -106,6 +112,18 @@ export const approveBeg = async (
       begTitle,                                                       // ← uses helper
       adminId,
     });
+
+    const notified = await NotificationService.begApproved({
+      userId: beg.userId,
+      begId: id,
+      begTitle,
+    });
+    if (!notified) {
+      logger.error('Beg approved but inbox notification was not persisted', {
+        begId: id,
+        userId: beg.userId,
+      });
+    }
 
     sendResponse(res, 200, {
       success: true,

@@ -3,6 +3,7 @@ import { getIO, isUserOnline } from '../../../config/socket';
 import logger from '../../../config/logger';
 
 export type NotificationType =
+  | 'beg_approved'
   | 'beg_funded'
   | 'donation_received'
   | 'message_received'
@@ -23,7 +24,8 @@ export class NotificationService {
    * 2. Emits real-time via Socket.io if user is currently online
    * Never throws - notification failure must never break main flow
    */
-  static async send(payload: CreateNotificationPayload): Promise<void> {
+  /** @returns false if persistence failed (errors are logged). */
+  static async send(payload: CreateNotificationPayload): Promise<boolean> {
     try {
       const notification = await prisma.notification.create({
         data: {
@@ -60,12 +62,14 @@ export class NotificationService {
           type: payload.type,
         });
       }
+      return true;
     } catch (error: any) {
       logger.error('Failed to send notification', {
         error: error.message,
         userId: payload.userId,
         type: payload.type,
       });
+      return false;
     }
   }
 
@@ -89,6 +93,24 @@ export class NotificationService {
       body: `${from} donated ₦${data.amount.toLocaleString()} to${
         data.begTitle ? ` "${data.begTitle}"` : ' your beg'
       }.`,
+      data: { beg_id: data.begId },
+    });
+  }
+
+  /**
+   * Notify requester that an admin approved their beg (now visible in the community).
+   */
+  static async begApproved(data: {
+    userId: string;
+    begId: string;
+    begTitle: string | null;
+  }): Promise<boolean> {
+    const label = data.begTitle ? `"${data.begTitle}"` : 'Your help request';
+    return this.send({
+      userId: data.userId,
+      type: 'beg_approved',
+      title: '✅ Your request was approved',
+      body: `${label} is now live. Others can see it and contribute.`,
       data: { beg_id: data.begId },
     });
   }
