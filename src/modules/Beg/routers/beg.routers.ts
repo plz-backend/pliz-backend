@@ -27,8 +27,7 @@ import { extendBeg } from '../../Beg/controller/beg.extend_beg.controller';
 import { getCategories } from '../../Beg/controller/beg.get_categories.js';
 import { getTrustProgress} from '../../Beg/controller/beg.get_trust_progress.js';
 import { getExpiringBegs } from '../../Beg/beg_extend_notification/beg.extend.notification.controller';
-
-
+import { requireKYC } from '../../KYC/middleware/requireKYC';
 
 
 const router = Router();
@@ -104,6 +103,7 @@ router.post(
   authenticate,
   checkProfileComplete,
   checkCooldown,
+  // requireKYC,              // ← blocks unverified users
   createBegValidation,
   checkAccountStatus,
   validateRequest,
@@ -118,6 +118,7 @@ router.post(
 router.put(
   '/:id',
   authenticate,
+  // requireKYC,              // ← blocks unverified users
   checkAccountStatus,
   updateBeg
 );

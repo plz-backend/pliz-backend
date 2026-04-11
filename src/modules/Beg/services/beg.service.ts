@@ -8,7 +8,7 @@ import logger from '../../../config/logger';
 // Validation constants
 const MAX_DESCRIPTION_WORDS = 40;
 const MAX_DESCRIPTION_LENGTH = 300;
-const VALID_EXPIRY_HOURS = [24, 72, 168] as const; // 24h, 72h, 7 days
+const VALID_EXPIRY_HOURS = [24, 72, 168] as const;
 
 /** Pending begs must not count down or hit the expiry cron; real `expiresAt` is set on admin approval. */
 const BEG_EXPIRY_PENDING_PLACEHOLDER = new Date('2099-12-31T23:59:59.999Z');
@@ -20,15 +20,67 @@ export class BegService {
    */
   private static validateDescription(description: string): void {
     const trimmed = description.trim();
-
     if (trimmed.length > MAX_DESCRIPTION_LENGTH) {
       throw new Error(`Description is too long (max ${MAX_DESCRIPTION_LENGTH} characters)`);
     }
-
     const wordCount = trimmed.split(/\s+/).filter(word => word.length > 0).length;
     if (wordCount > MAX_DESCRIPTION_WORDS) {
       throw new Error(`Description must be ${MAX_DESCRIPTION_WORDS} words or less (currently ${wordCount} words)`);
     }
+  }
+
+  // ============================================
+  // TIER PROGRESSION CHECK
+  // Before using a higher tier's benefits,
+  // user must have either:
+  // 1. Made at least 1 successful donation, OR
+  // 2. Completed at least 2 successful begs
+  // ============================================
+  private static async checkTierProgression(
+    userId: string,
+    currentTier: number,
+    calculatedTier: number
+  ): Promise<{ allowed: boolean; reason?: string }> {
+    // Tier 1 is the base tier — no requirements needed
+    if (calculatedTier <= 1) {
+      return { allowed: true };
+    }
+
+    // If user is not moving up — no check needed
+    if (calculatedTier <= currentTier) {
+      return { allowed: true };
+    }
+
+    // User is trying to move to a higher tier — check requirements
+    const stats = await prisma.userStats.findUnique({
+      where: { userId },
+      select: {
+        totalDonated: true,
+        requestsCount: true,
+      },
+    });
+
+    // Check successful donations
+    const hasDonated = stats?.totalDonated && Number(stats.totalDonated) > 0;
+
+    // Check successful begs — count funded begs
+    const successfulBegs = await prisma.beg.count({
+      where: {
+        userId,
+        status: 'funded',
+      },
+    });
+
+    const hasTwoSuccessfulBegs = successfulBegs >= 2;
+
+    if (!hasDonated && !hasTwoSuccessfulBegs) {
+      return {
+        allowed: false,
+        reason: `To access Tier ${calculatedTier} benefits, you need to either donate to someone or complete 2 successful begs first. You currently have ${successfulBegs} successful beg${successfulBegs === 1 ? '' : 's'} and have ${hasDonated ? '' : 'not '}donated before.`,
+      };
+    }
+
+    return { allowed: true };
   }
 
   /**
@@ -54,6 +106,30 @@ export class BegService {
 
       // Get user's trust info (cached in Redis)
       const trustInfo = await TrustScoreService.getUserTrustInfo(userId);
+
+      // ── TIER PROGRESSION CHECK ────────────────
+      // Before using higher tier benefits, user must
+      // have donated OR completed 2 successful begs
+      if (trustInfo.tier > 1) {
+        // Get current stored tier to detect tier-up
+        const userTrust = await prisma.userTrust.findUnique({
+          where: { userId },
+          select: { trustTier: true },
+        });
+
+        const currentStoredTier = userTrust?.trustTier || 1;
+
+        const tierCheck = await this.checkTierProgression(
+          userId,
+          currentStoredTier,
+          trustInfo.tier
+        );
+
+        if (!tierCheck.allowed) {
+          throw new Error(tierCheck.reason);
+        }
+      }
+      // ─────────────────────────────────────────
 
       // Check if amount exceeds tier limit
       if (data.amountRequested > trustInfo.maxAmount) {
@@ -162,7 +238,6 @@ export class BegService {
   static async extendBeg(begId: string, userId: string, expiryHours: 24 | 72 | 168): Promise<IBeg> {
     try {
       const beg = await prisma.beg.findUnique({ where: { id: begId } });
-
       if (!beg) throw new Error('Beg not found');
       if (beg.userId !== userId) throw new Error('Unauthorized to extend this beg');
       if (beg.status !== 'active') throw new Error('Can only extend active begs');
@@ -226,15 +301,13 @@ export class BegService {
         where: {
           status: 'active',
           approved: true,
-          expiryHours: { in: [24, 72] }, // only short-expiry begs
+          expiryHours: { in: [24, 72] },
           expiresAt: { lte: soon, gt: new Date() },
         },
         select: { id: true, userId: true, expiryHours: true, expiresAt: true },
       });
 
       for (const beg of expiringBegs) {
-        // TODO: send push notification / email to user
-        // "Your beg is expiring soon! Extend it to keep it live."
         logger.info('Expiry extension prompt triggered', {
           begId: beg.id,
           userId: beg.userId,
@@ -258,7 +331,6 @@ export class BegService {
       }
 
       const updateData: any = {};
-
       if (data.description !== undefined) {
         updateData.description = data.description ? data.description.trim() : null;
       }
@@ -289,7 +361,6 @@ export class BegService {
       });
 
       logger.info('Beg updated successfully', { begId, updatedFields: Object.keys(updateData) });
-
       return this.transformBegResponse(updatedBeg as IBegWithRelations);
     } catch (error: any) {
       logger.error('Failed to update beg', { error: error.message, begId });
@@ -312,7 +383,6 @@ export class BegService {
         approved: true,
         expiresAt: { gt: new Date() },
       };
-
       if (categoryId) where.categoryId = categoryId;
 
       const [begs, total] = await Promise.all([
@@ -385,7 +455,6 @@ export class BegService {
   ): Promise<{ begs: IBegResponse[]; total: number; pages: number }> {
     try {
       const skip = (page - 1) * limit;
-
       const [begs, total] = await Promise.all([
         prisma.beg.findMany({
           where: { userId },
@@ -466,14 +535,12 @@ export class BegService {
   static async cancelBeg(userId: string, begId: string): Promise<void> {
     try {
       const beg = await prisma.beg.findUnique({ where: { id: begId } });
-
       if (!beg) throw new Error('Beg not found');
       if (beg.userId !== userId) throw new Error('Unauthorized to cancel this beg');
       if (beg.status !== 'active') throw new Error('Can only cancel active begs');
       if (Number(beg.amountRaised) > 0) throw new Error('Cannot cancel beg that has received donations');
 
       await prisma.beg.update({ where: { id: begId }, data: { status: 'cancelled' } });
-
       logger.info('Beg cancelled by user', { begId, userId });
     } catch (error: any) {
       logger.error('Failed to cancel beg', { error: error.message, begId, userId });
@@ -494,7 +561,6 @@ export class BegService {
         },
         data: { status: 'expired' },
       });
-
       logger.info('Old begs expired', { count: result.count });
       return result.count;
     } catch (error: any) {
@@ -556,13 +622,10 @@ export class BegService {
   private static calculateTimeRemaining(expiresAt: Date, now: Date): string {
     const diff = expiresAt.getTime() - now.getTime();
     if (diff <= 0) return 'Expired';
-
     const days = Math.floor(diff / (1000 * 60 * 60 * 24));
     const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-
     if (days > 0) return `${days}d ${hours}h`;
     if (hours > 0) return `${hours}h`;
-
     const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
     return `${minutes}m`;
   }

@@ -79,6 +79,11 @@ export class DonationService {
         return await this.getDonationWithDetails(donation.id);
       }
 
+      // ← You are not allowed to donate to your own beg
+      if (donation.beg.userId === donation.donorId) {
+        throw new Error('You cannot donate to your own beg');
+      }
+
       const donationAmount = parseFloat(donation.amount.toString());
       const recipientId = donation.beg.userId;
       const donorId = donation.donorId;
@@ -312,6 +317,11 @@ export class DonationService {
 
     if (!beg) throw new Error('Beg not found');
     if (beg.status !== 'active') throw new Error(`Beg status: ${beg.status}`);
+
+    // ← ADD THIS
+    if (beg.userId === data.donorId) {
+      throw new Error('You cannot donate to your own beg');
+    }
 
     await prisma.donation.create({
       data: {

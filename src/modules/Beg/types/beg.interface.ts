@@ -211,7 +211,7 @@ export interface ITrustProgress {
     emailVerified: number;
     phoneVerified: number;
     documentVerified: number;
-    addressVerified: number;
+    // addressVerified: number;
     penalties: number;
   };
   recommendations: string[];

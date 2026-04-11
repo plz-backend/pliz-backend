@@ -24,6 +24,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@aws-sdk/client-textract": "^3.1027.0",
     "@prisma/adapter-pg": "^7.3.0",
     "@prisma/client": "^6.19.3",
     "apple-signin-auth": "^2.0.0",

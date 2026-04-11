@@ -61,7 +61,7 @@ export class TrustScoreService {
       if (verification) {
         if (verification.phoneVerified) score += 5;
         if (verification.documentVerified) score += 10;
-        if (verification.addressVerified) score += 5;
+        // if (verification.addressVerified) score += 5;
       }
 
       // Ensure score is between 0 and 100
@@ -213,7 +213,7 @@ export class TrustScoreService {
         emailVerified: 0,
         phoneVerified: verification?.phoneVerified ? 5 : 0,
         documentVerified: verification?.documentVerified ? 10 : 0,
-        addressVerified: verification?.addressVerified ? 5 : 0,
+        // addressVerified: verification?.addressVerified ? 5 : 0,
         penalties: stats ? stats.abuseFlags * -20 : 0,
       };
 

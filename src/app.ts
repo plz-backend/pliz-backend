@@ -12,6 +12,7 @@ import { getQueueHealth } from './config/queue-manager';
 import authRoutes from './modules/auth/routes/authRoutes';
 import sessionRoutes from './modules/auth/routes/session.routes';
 import profileRoutes from './modules/auth/routes/profile.routes';
+import kycRoutes from './modules/KYC/routes/kyc.routes';
 import begRoutes from './modules/Beg/routers/beg.routers';
 import donorRoutes from './modules/Donor/router/donations.routes';
 import notificationRoutes from './modules/notifications/routes/notification.routes';
@@ -70,6 +71,7 @@ export const createApp = (): Express => {
   // ============================================
   app.use('/api/auth', authRoutes);
   app.use('/api/auth/profile', profileRoutes);
+  app.use('/api/kyc', kycRoutes);
   app.use('/api/sessions', sessionRoutes);
   app.use('/api/begs', begRoutes);
   app.use('/api/donations', donorRoutes);
