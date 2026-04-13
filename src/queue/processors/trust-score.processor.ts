@@ -1,11 +1,12 @@
 import { Worker, Job } from 'bullmq';
 import { bullMQConnection } from '../../config/bullmq-connection';
 import { QUEUES } from '../../config/queue';
+import { getBullMQConnection } from '../../config/bullmq-connection';  // ← shared
 import { TrustScoreService } from '../../services/trust_score.service';
 import { ITrustScoreJob } from '../job.types';
 import logger from '../../config/logger';
 
-const connection = bullMQConnection;
+const connection = getBullMQConnection();  // use shared connection
 
 export const trustScoreWorker = new Worker<ITrustScoreJob>(
   QUEUES.TRUST_SCORE,
@@ -27,6 +28,7 @@ export const trustScoreWorker = new Worker<ITrustScoreJob>(
   {
     connection,
     concurrency: 10,
+    stalledInterval: 300000,    // OPTIMIZATION: check stalled every 5min not 5sec
   }
 );
 
@@ -47,12 +49,10 @@ trustScoreWorker.on('failed', (job, error) => {
   });
 });
 
-// ← prevents ECONNRESET from crashing the worker
 trustScoreWorker.on('error', (error) => {
   logger.error('Trust score worker error', { error: error.message });
 });
 
-// ← stalled means trust score may be stale after a donation
 trustScoreWorker.on('stalled', (jobId) => {
   logger.warn('Trust score job stalled', { jobId });
 });

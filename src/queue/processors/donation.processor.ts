@@ -1,11 +1,13 @@
 import { Worker, Job } from 'bullmq';
 import { bullMQConnection } from '../../config/bullmq-connection';
 import { QUEUES } from '../../config/queue';
+import { getBullMQConnection } from '../../config/bullmq-connection';  // ← shared connection
 import { DonationService } from '../../modules/Donor/services/donation.service';
 import { IDonationJob } from '../job.types';
 import logger from '../../config/logger';
 
-const connection = bullMQConnection;
+const connection = getBullMQConnection();  // ← use shared connection
+
 
 export const donationWorker = new Worker<IDonationJob>(
   QUEUES.DONATIONS,
@@ -25,7 +27,8 @@ export const donationWorker = new Worker<IDonationJob>(
   },
   {
     connection,
-    concurrency: 5,
+    concurrency: 5,   // Process 5 donations at the same time
+    stalledInterval: 300000,    // ← OPTIMIZATION: check stalled every 5min not 5sec
   }
 );
 
@@ -49,8 +52,6 @@ donationWorker.on('error', (error) => {
   logger.error('Donation worker error', { error: error.message });
 });
 
-// ← IMPORTANT for money app — stalled means job was picked up but never finished
-// Could mean user paid but donation not recorded
 donationWorker.on('stalled', (jobId) => {
   logger.error('Donation job stalled — user may have paid but donation not recorded', {
     jobId,

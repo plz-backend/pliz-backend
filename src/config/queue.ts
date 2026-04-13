@@ -14,7 +14,14 @@ export const QUEUE_CONFIG = {
       type: 'exponential' as const,
       delay: 2000,                  // Start with 2s, then 4s, then 8s
     },
-    removeOnComplete: 100,          // Keep last 100 completed jobs
-    removeOnFail: 500,              // Keep last 500 failed jobs for debugging
+    // OPTIMIZATION: remove jobs after completion to save Redis memory
+    removeOnComplete: {
+    age: 3600,      // remove completed jobs older than 1 hour
+    count: 100,     // keep max 100 completed jobs
+  },
+    removeOnFail: {
+    age: 24 * 3600, // remove failed jobs older than 24 hours
+    count: 200,     // keep max 200 failed jobs
+  },
   },
 };

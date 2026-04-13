@@ -1,11 +1,12 @@
 import { Worker, Job } from 'bullmq';
 import { bullMQConnection } from '../../config/bullmq-connection';
 import { QUEUES } from '../../config/queue';
+import { getBullMQConnection } from '../../config/bullmq-connection';  // ← shared
 import { WithdrawalEmailService } from '../../modules/Withdrawal/services/withdrawal_email.service';
 import { IEmailJob } from '../job.types';
 import logger from '../../config/logger';
 
-const connection = bullMQConnection;
+const connection = getBullMQConnection();  // use shared connection
 
 export const emailWorker = new Worker<IEmailJob>(
   QUEUES.EMAILS,
@@ -34,7 +35,8 @@ export const emailWorker = new Worker<IEmailJob>(
   },
   {
     connection,
-    concurrency: 10,
+    concurrency: 10,  // Emails can be sent in parallel
+    stalledInterval: 300000,    // ← OPTIMIZATION: check stalled every 5min not 5sec
   }
 );
 
@@ -55,7 +57,6 @@ emailWorker.on('error', (error) => {
   logger.error('Email worker error', { error: error.message });
 });
 
-// ← stalled means user may not have received their email notification
 emailWorker.on('stalled', (jobId) => {
   logger.warn('Email job stalled', { jobId });
 });
