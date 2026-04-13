@@ -675,25 +675,39 @@ export class KYCService {
   }
 
   // ============================================
-  // SMS — Termii (popular in Nigeria)
+  // SMS — Termii
   // ============================================
   private static async sendSMS(phoneNumber: string, message: string): Promise<void> {
     try {
-      await axios.post(
-        'https://api.ng.termii.com/api/sms/send',
+      const payload = {
+        to: phoneNumber,
+        from: 'Plz',
+        sms: message,
+        type: 'plain',
+        channel: 'dnd',
+        api_key: process.env.TERMII_API_KEY,
+      };
+  
+      const response = await axios.post(
+        'https://v3.api.termii.com/api/sms/send',
+        payload,
         {
-          to: phoneNumber,
-          from: 'Plz',
-          sms: message,
-          type: 'plain',
-          channel: 'generic',
-          api_key: process.env.TERMII_API_KEY,
-        },
-        { headers: { 'Content-Type': 'application/json' } }
+          headers: { 'Content-Type': 'application/json' },
+          timeout: 15000,
+        }
       );
-      logger.info('SMS sent', { phone: phoneNumber });
+  
+      logger.info('SMS sent', {
+        phone: phoneNumber,
+        response: response.data,
+      });
     } catch (error: any) {
-      logger.error('SMS sending failed', { error: error.message });
+      logger.error('SMS sending failed', {
+        message: error.message,
+        status: error.response?.status,
+        data: error.response?.data,
+      });
+  
       throw new Error('Failed to send OTP. Please try again.');
     }
   }

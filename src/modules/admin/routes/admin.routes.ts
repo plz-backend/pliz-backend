@@ -100,11 +100,16 @@ router.get('/activity', getAdminActions);
 // STORY MANAGEMENT
 // ============================================
 
-router.get('/', adminGetStories);                                                           // GET  /api/admin/stories?filter=pending
-router.get('/:id', storyIdValidation, validateRequest, adminGetStoryById);                        // GET  /api/admin/stories/:id
-router.patch('/:id/approve', storyIdValidation, validateRequest, adminApproveStory);              // PATCH /api/admin/stories/:id/approve
-router.patch('/:id/reject', rejectStoryValidation, validateRequest, adminRejectStory);            // PATCH /api/admin/stories/:id/reject
-router.patch('/:id/toggle-visibility', storyIdValidation, validateRequest, adminToggleVisibility);// PATCH /api/admin/stories/:id/toggle-visibility
-router.delete('/:id', storyIdValidation, validateRequest, adminDeleteStory);                      // DELETE /api/admin/stories/:id
+router.get('/stories', adminGetStories); // GET /api/admin/stories?filter=pending
+router.get('/stories/:id', storyIdValidation, validateRequest, adminGetStoryById);
+router.patch('/stories/:id/approve', storyIdValidation, validateRequest, adminApproveStory);
+router.patch('/stories/:id/reject', rejectStoryValidation, validateRequest, adminRejectStory);
+router.patch(
+  '/stories/:id/toggle-visibility',
+  storyIdValidation,
+  validateRequest,
+  adminToggleVisibility
+);
+router.delete('/stories/:id', storyIdValidation, validateRequest, adminDeleteStory);
 
 export default router;

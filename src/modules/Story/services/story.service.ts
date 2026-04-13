@@ -307,14 +307,15 @@ export class StoryService {
         include: this.includeUserProfile(),
       });
 
-      // Log admin action
+      // Log admin action — targetId must reference User (FK); story id lives in metadata.
       await prisma.adminAction.create({
         data: {
           adminId,
           actionType: 'approve_story',
           targetType: 'story',
-          targetId: storyId,
-          description: `Approved story by user ${story.userId}`,
+          targetId: story.userId,
+          description: `Approved story ${storyId}`,
+          metadata: { storyId },
         },
       });
 
@@ -352,14 +353,14 @@ export class StoryService {
         include: this.includeUserProfile(),
       });
 
-      // Log admin action
       await prisma.adminAction.create({
         data: {
           adminId,
           actionType: 'reject_story',
           targetType: 'story',
-          targetId: storyId,
-          description: `Rejected story by user ${story.userId}. Reason: ${data.reason}`,
+          targetId: story.userId,
+          description: `Rejected story ${storyId}. Reason: ${data.reason}`,
+          metadata: { storyId },
         },
       });
 
@@ -385,14 +386,14 @@ export class StoryService {
         include: this.includeUserProfile(),
       });
 
-      // Log admin action
       await prisma.adminAction.create({
         data: {
           adminId,
           actionType: updated.isVisible ? 'show_story' : 'hide_story',
           targetType: 'story',
-          targetId: storyId,
-          description: `Story ${updated.isVisible ? 'made visible' : 'hidden'} by admin`,
+          targetId: story.userId,
+          description: `Story ${storyId} ${updated.isVisible ? 'made visible' : 'hidden'}`,
+          metadata: { storyId },
         },
       });
 
@@ -412,18 +413,18 @@ export class StoryService {
       const story = await prisma.story.findUnique({ where: { id: storyId } });
       if (!story) throw new Error('Story not found');
 
-      await prisma.story.delete({ where: { id: storyId } });
-
-      // Log admin action
       await prisma.adminAction.create({
         data: {
           adminId,
           actionType: 'delete_story',
           targetType: 'story',
-          targetId: storyId,
-          description: `Deleted story belonging to user ${story.userId}`,
+          targetId: story.userId,
+          description: `Deleted story ${storyId}`,
+          metadata: { storyId },
         },
       });
+
+      await prisma.story.delete({ where: { id: storyId } });
 
       logger.info('Story deleted by admin', { storyId, adminId });
     } catch (error: any) {
