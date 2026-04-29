@@ -1,25 +1,23 @@
 import prisma from '../../../config/database';
-import axios from 'axios';
-import crypto from 'crypto';
+import { Prisma } from '@prisma/client';
 import logger from '../../../config/logger';
+import { PhoneVerificationService } from './phone-verification.service';
 import { DocumentVerificationService } from './document-verification.service';
+import { IdentityVerificationService } from './identity-verification.service';
+import { KYCDocumentUploadService } from './document-upload.service';
 import {
-  ISubmitKYCRequest,
+  IUploadDocumentRequest,
   IKYCResponse,
   IKYCStatusResponse,
-  IProviderVerificationResult,
+  KYCStatus,
 } from '../types/kyc.interface';
 
 const MAX_ATTEMPTS = 3;
-const OTP_EXPIRY_MINUTES = 10;
-const OTP_RESEND_COOLDOWN_SECONDS = 60;
 
 export class KYCService {
 
   // ============================================
   // GET KYC STATUS
-  // Returns full status + phone from profile
-  // + step progress for frontend
   // ============================================
   static async getKYCStatus(userId: string): Promise<IKYCStatusResponse> {
     const [verification, profile] = await Promise.all([
@@ -35,27 +33,42 @@ export class KYCService {
       : MAX_ATTEMPTS;
 
     const canRetry = verification
-      ? verification.status === 'rejected' && verification.attemptCount < MAX_ATTEMPTS
+      ? verification.status === 'rejected' &&
+        verification.attemptCount < MAX_ATTEMPTS
       : false;
 
     const steps = [
       {
         step: 1,
-        label: 'Profile Completed',
+        label: 'Profile completed',
         completed: !!profile,
         description: 'Complete your profile with your personal details',
       },
       {
         step: 2,
-        label: 'Phone Verified',
+        label: 'Phone verified',
         completed: verification?.phoneVerified || false,
-        description: `Verify your phone number ${profile?.phoneNumber ? `(${profile.phoneNumber})` : ''}`,
+        description: `Verify your phone number${
+          profile?.phoneNumber ? ` (${profile.phoneNumber})` : ''
+        }`,
       },
       {
         step: 3,
-        label: 'Identity Verified',
+        label: 'Document uploaded',
+        completed: verification?.documentVerified || false,
+        description: 'Fill in your document details and upload NIN or Passport',
+      },
+      {
+        step: 4,
+        label: 'Face liveness check',
+        completed: verification?.faceLivenessPassed || false,
+        description: 'Take a selfie to confirm you are a real person',
+      },
+      {
+        step: 5,
+        label: 'Identity verified',
         completed: verification?.isVerified || false,
-        description: 'Verify your identity with BVN, NIN, or Passport',
+        description: 'Prembly verifies your identity against government records',
       },
     ];
 
@@ -65,394 +78,604 @@ export class KYCService {
       steps,
       attemptsRemaining,
       canRetry,
-      ui: this.buildUIMessage(verification?.status || null, canRetry, attemptsRemaining),
+      ui: this.buildUIMessage(
+        (verification?.status as KYCStatus) || null,
+        canRetry,
+        attemptsRemaining
+      ),
     };
   }
 
   // ============================================
-  // SEND PHONE OTP
-  // Uses phone number from profile
+  // PHONE VERIFICATION
+  // Delegated to PhoneVerificationService
   // ============================================
   static async sendPhoneOTP(userId: string): Promise<void> {
-    try {
-      const profile = await prisma.userProfile.findUnique({
-        where: { userId },
-        select: { phoneNumber: true },
-      });
-
-      if (!profile?.phoneNumber) {
-        throw new Error('Phone number not found. Please complete your profile first.');
-      }
-
-      const existing = await prisma.userVerification.findUnique({
-        where: { userId },
-        select: { phoneVerified: true },
-      });
-
-      if (existing?.phoneVerified) {
-        throw new Error('Phone number is already verified.');
-      }
-
-      const otp = crypto.randomInt(100000, 999999).toString();
-      const otpExpiresAt = new Date();
-      otpExpiresAt.setMinutes(otpExpiresAt.getMinutes() + OTP_EXPIRY_MINUTES);
-
-      await prisma.userVerification.upsert({
-        where: { userId },
-        create: {
-          userId,
-          phoneOtp: otp,
-          phoneOtpExpiresAt: otpExpiresAt,
-          status: 'pending',
-          attemptCount: 0,
-        },
-        update: {
-          phoneOtp: otp,
-          phoneOtpExpiresAt: otpExpiresAt,
-        },
-      });
-
-      await this.sendSMS(
-        profile.phoneNumber,
-        `Your Plz verification code is: ${otp}. Valid for ${OTP_EXPIRY_MINUTES} minutes. Do not share this code with anyone.`
-      );
-
-      logger.info('Phone OTP sent', { userId });
-    } catch (error: any) {
-      logger.error('Failed to send phone OTP', { error: error.message, userId });
-      throw error;
-    }
+    return PhoneVerificationService.sendPhoneOTP(userId);
   }
 
-  // ============================================
-  // RESEND PHONE OTP
-  // 60 second cooldown between resends
-  // ============================================
   static async resendPhoneOTP(userId: string): Promise<void> {
-    try {
-      const [profile, verification] = await Promise.all([
-        prisma.userProfile.findUnique({
-          where: { userId },
-          select: { phoneNumber: true },
-        }),
-        prisma.userVerification.findUnique({
-          where: { userId },
-          select: {
-            phoneVerified: true,
-            phoneOtpExpiresAt: true,
-          },
-        }),
-      ]);
-
-      if (!profile?.phoneNumber) {
-        throw new Error('Phone number not found. Please complete your profile first.');
-      }
-
-      if (verification?.phoneVerified) {
-        throw new Error('Phone number is already verified.');
-      }
-
-      // Enforce 60 second cooldown
-      if (verification?.phoneOtpExpiresAt) {
-        const otpCreatedAt = new Date(verification.phoneOtpExpiresAt);
-        otpCreatedAt.setMinutes(otpCreatedAt.getMinutes() - OTP_EXPIRY_MINUTES);
-        const secondsSinceSent = (Date.now() - otpCreatedAt.getTime()) / 1000;
-
-        if (secondsSinceSent < OTP_RESEND_COOLDOWN_SECONDS) {
-          const secondsRemaining = Math.ceil(OTP_RESEND_COOLDOWN_SECONDS - secondsSinceSent);
-          throw new Error(`Please wait ${secondsRemaining} seconds before requesting a new OTP.`);
-        }
-      }
-
-      const otp = crypto.randomInt(100000, 999999).toString();
-      const otpExpiresAt = new Date();
-      otpExpiresAt.setMinutes(otpExpiresAt.getMinutes() + OTP_EXPIRY_MINUTES);
-
-      await prisma.userVerification.upsert({
-        where: { userId },
-        create: {
-          userId,
-          phoneOtp: otp,
-          phoneOtpExpiresAt: otpExpiresAt,
-          status: 'pending',
-          attemptCount: 0,
-        },
-        update: {
-          phoneOtp: otp,
-          phoneOtpExpiresAt: otpExpiresAt,
-        },
-      });
-
-      await this.sendSMS(
-        profile.phoneNumber,
-        `Your new Plz verification code is: ${otp}. Valid for ${OTP_EXPIRY_MINUTES} minutes. Do not share this code with anyone.`
-      );
-
-      logger.info('Phone OTP resent', { userId });
-    } catch (error: any) {
-      logger.error('Failed to resend phone OTP', { error: error.message, userId });
-      throw error;
-    }
+    return PhoneVerificationService.resendPhoneOTP(userId);
   }
 
-  // ============================================
-  // VERIFY PHONE OTP
-  // ============================================
   static async verifyPhoneOTP(userId: string, otp: string): Promise<void> {
-    try {
-      const verification = await prisma.userVerification.findUnique({
-        where: { userId },
-        select: {
-          phoneOtp: true,
-          phoneOtpExpiresAt: true,
-          phoneVerified: true,
-        },
-      });
-
-      if (!verification) throw new Error('Please request an OTP first.');
-      if (verification.phoneVerified) throw new Error('Phone number is already verified.');
-      if (!verification.phoneOtp || !verification.phoneOtpExpiresAt) {
-        throw new Error('No OTP found. Please request a new OTP.');
-      }
-      if (new Date() > verification.phoneOtpExpiresAt) {
-        throw new Error('OTP has expired. Please request a new one.');
-      }
-      if (verification.phoneOtp !== otp) {
-        throw new Error('Invalid OTP. Please check and try again.');
-      }
-
-      await prisma.userVerification.update({
-        where: { userId },
-        data: {
-          phoneVerified: true,
-          phoneVerifiedAt: new Date(),
-          phoneOtp: null,
-          phoneOtpExpiresAt: null,
-        },
-      });
-
-      await prisma.notification.create({
-        data: {
-          userId,
-          type: 'phone_verified',
-          title: '📱 Phone Number Verified!',
-          body: 'Your phone number has been verified. Now verify your identity to start creating begs on Plz.',
-          data: {},
-        },
-      });
-
-      logger.info('Phone OTP verified', { userId });
-    } catch (error: any) {
-      logger.error('Phone OTP verification failed', { error: error.message, userId });
-      throw error;
-    }
+    return PhoneVerificationService.verifyPhoneOTP(userId, otp);
   }
 
   // ============================================
-  // SUBMIT KYC — first time submission
+  // UPLOAD DOCUMENT
+  // Step 3 — fill form + upload + check authenticity
   // ============================================
-  static async submitKYC(
+  static async uploadDocument(
     userId: string,
-    data: ISubmitKYCRequest
-  ): Promise<IKYCResponse> {
-    try {
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-        include: { profile: true, verification: true },
-      });
-
-      if (!user) throw new Error('User not found');
-      if (!user.profile) throw new Error('Please complete your profile before KYC verification');
-      if (!user.verification?.phoneVerified) {
-        throw new Error('Please verify your phone number first before submitting identity verification');
-      }
-      if (user.verification?.isVerified) throw new Error('You are already verified');
-      if (user.verification && user.verification.attemptCount >= MAX_ATTEMPTS) {
-        throw new Error(`Maximum verification attempts (${MAX_ATTEMPTS}) reached. Please contact support@plz.app`);
-      }
-
-      this.validateKYCData(data);
-
-      const verification = await prisma.userVerification.upsert({
-        where: { userId },
-        create: {
-          userId,
-          ...this.buildTypeData(data),
-          status: 'pending',
-          attemptCount: 1,
-          lastAttemptAt: new Date(),
-        },
-        update: {
-          ...this.buildTypeData(data),
-          status: 'pending',
-          rejectionReason: null,
-          rejectedAt: null,
-          rejectedBy: null,
-          attemptCount: { increment: 1 },
-          lastAttemptAt: new Date(),
-        },
-      });
-
-      logger.info('KYC submitted', { userId, type: data.verificationType });
-
-      // Auto verify in background
-      this.autoVerify(userId, data, user.profile).catch(err => {
-        logger.error('Auto verification failed', { error: err.message, userId });
-      });
-
-      return this.formatResponse(verification);
-    } catch (error: any) {
-      logger.error('KYC submission failed', { error: error.message, userId });
-      throw error;
-    }
-  }
-
-  // ============================================
-  // UPDATE KYC — resubmit after rejection
-  // ============================================
-  static async updateKYC(
-    userId: string,
-    data: ISubmitKYCRequest
+    fileBuffer: Buffer,
+    mimeType: string,
+    data: IUploadDocumentRequest
   ): Promise<IKYCResponse> {
     try {
       const verification = await prisma.userVerification.findUnique({
         where: { userId },
         select: {
-          status: true,
+          phoneVerified: true,
           isVerified: true,
           attemptCount: true,
-          phoneVerified: true,
+          ninFrontUrl: true,
         },
       });
 
-      if (!verification) {
-        throw new Error('No verification found. Please submit your verification first.');
-      }
-      if (verification.isVerified) {
-        throw new Error('You are already verified. No update needed.');
-      }
-      if (verification.status !== 'rejected') {
-        const statusMessages: Record<string, string> = {
-          pending: 'Your verification is still pending. Please wait for the result.',
-          under_review: 'Your verification is under review. Please wait for the result.',
-        };
-        throw new Error(statusMessages[verification.status] || 'Cannot update verification at this time.');
-      }
-      if (verification.attemptCount >= MAX_ATTEMPTS) {
-        throw new Error(`Maximum verification attempts (${MAX_ATTEMPTS}) reached. Please contact support@plz.app`);
-      }
-      if (!verification.phoneVerified) {
+      if (!verification?.phoneVerified) {
         throw new Error('Please verify your phone number first.');
       }
+      if (verification.isVerified) {
+        throw new Error('You are already verified.');
+      }
 
-      this.validateKYCData(data);
+      // ── VALIDATE NIN FIELDS ──────────────────
+      if (data.verificationType === 'nin') {
+        if (!data.nin || !/^\d{11}$/.test(data.nin)) {
+          throw new Error('NIN must be exactly 11 digits.');
+        }
+        if (!data.ninDocumentType || !['slip', 'card'].includes(data.ninDocumentType)) {
+          throw new Error('Please select NIN document type (slip or card).');
+        }
+        if (!data.ninStateOfOrigin) throw new Error('State of origin is required.');
+        if (!data.ninLGA) throw new Error('LGA is required.');
+        if (!data.ninEnrollmentDate) throw new Error('Enrollment date is required.');
+        if (new Date(data.ninEnrollmentDate) > new Date()) {
+          throw new Error('Enrollment date cannot be in the future.');
+        }
 
-      const updated = await prisma.userVerification.update({
+      // ── VALIDATE PASSPORT FIELDS ─────────────
+      } else if (data.verificationType === 'passport') {
+        if (!data.passportNumber || !/^[A-Z]{1}[0-9]{8}$/.test(data.passportNumber)) {
+          throw new Error('Passport number must be in format A12345678.');
+        }
+        if (!data.passportPlaceOfBirth) throw new Error('Place of birth is required.');
+        if (!data.passportIssueDate) throw new Error('Issue date is required.');
+        if (!data.passportExpiry) throw new Error('Expiry date is required.');
+        if (!data.passportPlaceOfIssue) throw new Error('Place of issue is required.');
+        if (new Date(data.passportExpiry) < new Date()) {
+          throw new Error('Your passport has expired. Please use a valid passport.');
+        }
+        if (new Date(data.passportIssueDate) > new Date()) {
+          throw new Error('Issue date cannot be in the future.');
+        }
+      } else {
+        throw new Error('verificationType must be nin or passport.');
+      }
+
+      // ── CHECK DOCUMENT AUTHENTICITY ──────────
+      const imageBase64 = KYCDocumentUploadService.toBase64(fileBuffer);
+
+      let docCheck: { valid: boolean; error?: string };
+
+      if (data.verificationType === 'nin') {
+        docCheck = await DocumentVerificationService.verifyNINDocument(
+          imageBase64,
+          data.ninDocumentType as 'slip' | 'card'
+        );
+      } else {
+        docCheck = await DocumentVerificationService.verifyPassportDocument(imageBase64);
+      }
+
+      if (!docCheck.valid) {
+        throw new Error(
+          docCheck.error ||
+          'Document could not be verified. Please upload a clearer photo.'
+        );
+      }
+
+      // ── UPLOAD TO SUPABASE ────────────────────
+      const documentUrl = await KYCDocumentUploadService.uploadDocument(
+        userId, fileBuffer, mimeType, data.documentType
+      );
+
+      // ── BUILD UPDATE DATA ─────────────────────
+      const updateData: any = {};
+
+      if (data.verificationType === 'nin') {
+        updateData.verificationType = 'nin';
+        updateData.nin = data.nin;
+        updateData.ninDocumentType = data.ninDocumentType;
+        updateData.ninStateOfOrigin = data.ninStateOfOrigin;
+        updateData.ninLGA = data.ninLGA;
+        updateData.ninEnrollmentDate = new Date(data.ninEnrollmentDate!);
+        if (data.ninMiddleName) updateData.ninMiddleName = data.ninMiddleName;
+
+        if (data.documentType === 'nin_front') {
+          updateData.ninFrontUrl = documentUrl;
+          // Slip = one image only → mark document verified
+          if (data.ninDocumentType === 'slip') {
+            updateData.documentVerified = true;
+            updateData.documentVerifiedAt = new Date();
+            updateData.status = 'document_uploaded';
+          }
+          // Card = needs back too → not verified yet
+        } else if (data.documentType === 'nin_back') {
+          updateData.ninBackUrl = documentUrl;
+          // Back uploaded — check if front already exists
+          if (verification.ninFrontUrl) {
+            updateData.documentVerified = true;
+            updateData.documentVerifiedAt = new Date();
+            updateData.status = 'document_uploaded';
+          }
+        }
+      } else {
+        // Passport
+        updateData.verificationType = 'passport';
+        updateData.passportNumber = data.passportNumber;
+        updateData.passportExpiry = new Date(data.passportExpiry!);
+        updateData.passportIssueDate = new Date(data.passportIssueDate!);
+        updateData.passportPlaceOfBirth = data.passportPlaceOfBirth;
+        updateData.passportPlaceOfIssue = data.passportPlaceOfIssue;
+        updateData.passportBiodataUrl = documentUrl;
+        if (data.passportMiddleName) {
+          updateData.passportMiddleName = data.passportMiddleName;
+        }
+        // Passport biodata page only → mark document verified
+        updateData.documentVerified = true;
+        updateData.documentVerifiedAt = new Date();
+        updateData.status = 'document_uploaded';
+      }
+
+      const updated = await prisma.userVerification.upsert({
         where: { userId },
-        data: {
-          ...this.buildTypeData(data),
-          status: 'pending',
-          rejectionReason: null,
-          rejectedAt: null,
-          rejectedBy: null,
-          attemptCount: { increment: 1 },
-          lastAttemptAt: new Date(),
+        create: {
+          userId,
+          ...updateData,
+          phoneVerified: verification.phoneVerified,
+          attemptCount: verification.attemptCount,
         },
+        update: updateData,
       });
 
-      logger.info('KYC resubmitted', { userId, type: data.verificationType, attempt: updated.attemptCount });
-
-      // Get profile for auto verify
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-        include: { profile: true },
-      });
-
-      this.autoVerify(userId, data, user!.profile!).catch(err => {
-        logger.error('Auto re-verification failed', { error: err.message, userId });
+      logger.info('Document uploaded and verified', {
+        userId,
+        documentType: data.documentType,
+        verificationType: data.verificationType,
       });
 
       return this.formatResponse(updated);
     } catch (error: any) {
-      logger.error('KYC update failed', { error: error.message, userId });
+      logger.error('Document upload failed', { error: error.message, userId });
       throw error;
     }
   }
 
   // ============================================
-  // AUTO VERIFY
-  // Step 1: Document check (NIN + Passport only)
-  // Step 2: Provider API call
+  // SUBMIT KYC — Final step
+  // Validates profile then calls Prembly API
   // ============================================
-  private static async autoVerify(
+  static async submitKYC(userId: string): Promise<IKYCResponse> {
+    try {
+      const [verification, user] = await Promise.all([
+        prisma.userVerification.findUnique({ where: { userId } }),
+        prisma.user.findUnique({
+          where: { id: userId },
+          include: {
+            profile: {
+              select: {
+                firstName: true,
+                lastName: true,
+                dateOfBirth: true,
+                gender: true,
+                phoneNumber: true,
+              },
+            },
+          },
+        }),
+      ]);
+
+      if (!verification) throw new Error('Please start KYC verification first.');
+      if (!verification.phoneVerified) throw new Error('Please verify your phone number first.');
+      if (!verification.documentVerified) throw new Error('Please upload your document first.');
+      if (!verification.faceLivenessPassed) {
+        throw new Error('Please complete the face liveness check first.');
+      }
+      if (verification.isVerified) throw new Error('You are already verified.');
+      if (verification.attemptCount >= MAX_ATTEMPTS) {
+        throw new Error(
+          `Maximum attempts (${MAX_ATTEMPTS}) reached. Please contact support@plz.app`
+        );
+      }
+      if (!user?.profile) {
+        throw new Error('Please complete your profile before submitting.');
+      }
+      if (!user.profile.firstName || !user.profile.lastName) {
+        throw new Error(
+          'Please add your first name and last name in your profile before verifying.'
+        );
+      }
+      if (!user.profile.dateOfBirth) {
+        throw new Error('Please add your date of birth in your profile before verifying.');
+      }
+      if (!user.profile.gender) {
+        throw new Error('Please add your gender in your profile before verifying.');
+      }
+
+      // Update to under_review
+      await prisma.userVerification.update({
+        where: { userId },
+        data: {
+          status: 'under_review',
+          attemptCount: { increment: 1 },
+          lastAttemptAt: new Date(),
+        },
+      });
+
+      // Run in background
+      this.runVerification(userId, verification, user.profile).catch(err => {
+        logger.error('Background verification failed', {
+          error: err.message, userId,
+        });
+      });
+
+      return this.formatResponse(
+        await prisma.userVerification.findUnique({ where: { userId } }) as any
+      );
+    } catch (error: any) {
+      logger.error('KYC submit failed', { error: error.message, userId });
+      throw error;
+    }
+  }
+
+  // ============================================
+  // UPDATE KYC — Resubmit after rejection
+  // ============================================
+  static async updateKYC(userId: string): Promise<IKYCResponse> {
+    const verification = await prisma.userVerification.findUnique({
+      where: { userId },
+      select: { status: true, isVerified: true, attemptCount: true },
+    });
+
+    if (!verification) {
+      throw new Error('No verification found. Please start KYC verification first.');
+    }
+    if (verification.isVerified) {
+      throw new Error('You are already verified.');
+    }
+    if (verification.status !== 'rejected') {
+      const messages: Record<string, string> = {
+        pending: 'Please verify your phone number first.',
+        document_uploaded: 'Please complete face liveness check.',
+        liveness_passed: 'Please submit your verification.',
+        under_review: 'Your verification is under review. Please wait.',
+      };
+      throw new Error(messages[verification.status] || 'Cannot update at this time.');
+    }
+    if (verification.attemptCount >= MAX_ATTEMPTS) {
+      throw new Error(
+        `Maximum attempts (${MAX_ATTEMPTS}) reached. Please contact support@plz.app`
+      );
+    }
+
+    // Reset all fields for resubmission
+    await prisma.userVerification.update({
+      where: { userId },
+      data: {
+        status: 'pending',
+        verificationType: null,
+        nin: null,
+        ninDocumentType: null,
+        ninMiddleName: null,
+        ninStateOfOrigin: null,
+        ninLGA: null,
+        ninEnrollmentDate: null,
+        ninFrontUrl: null,
+        ninBackUrl: null,
+        passportNumber: null,
+        passportMiddleName: null,
+        passportPlaceOfBirth: null,
+        passportIssueDate: null,
+        passportExpiry: null,
+        passportPlaceOfIssue: null,
+        passportBiodataUrl: null,
+        documentVerified: false,
+        documentVerifiedAt: null,
+        faceLivenessPassed: false,
+        faceLivenessPassedAt: null,
+        faceLivenessUrl: null,
+        faceLivenessScore: null,
+        rejectionReason: null,
+        rejectedAt: null,
+        providerResponse: Prisma.JsonNull,   // ← fixed
+      },
+    });
+
+    // Delete old documents from Supabase
+    await KYCDocumentUploadService.deleteDocuments(userId);
+
+    logger.info('KYC reset for resubmission', { userId });
+
+    return this.formatResponse(
+      await prisma.userVerification.findUnique({ where: { userId } }) as any
+    );
+  }
+
+  // ============================================
+  // ADMIN — GET ALL VERIFICATIONS
+  // ============================================
+  static async getAllVerifications(
+    page: number = 1,
+    limit: number = 20,
+    status?: string,
+    verificationType?: string
+  ) {
+    const skip = (page - 1) * limit;
+    const where: any = {};
+    if (status) where.status = status;
+    if (verificationType) where.verificationType = verificationType;
+
+    const [verifications, total] = await Promise.all([
+      prisma.userVerification.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { updatedAt: 'desc' },
+        include: {
+          user: {
+            select: {
+              id: true,
+              email: true,
+              username: true,
+              profile: {
+                select: {
+                  firstName: true,
+                  lastName: true,
+                  phoneNumber: true,
+                },
+              },
+            },
+          },
+        },
+      }),
+      prisma.userVerification.count({ where }),
+    ]);
+
+    return {
+      verifications: verifications.map(v => this.formatAdminResponse(v)),
+      total,
+      pages: Math.ceil(total / limit),
+    };
+  }
+
+  // ============================================
+  // ADMIN — GET SINGLE VERIFICATION
+  // ============================================
+  static async getVerification(userId: string) {
+    const verification = await prisma.userVerification.findUnique({
+      where: { userId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            username: true,
+            profile: {
+              select: {
+                firstName: true,
+                lastName: true,
+                phoneNumber: true,
+                dateOfBirth: true,
+                gender: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!verification) throw new Error('Verification not found');
+
+    return this.formatAdminResponse(verification);
+  }
+
+  // ============================================
+  // ADMIN — MANUALLY VERIFY
+  // ============================================
+  static async manuallyVerify(
     userId: string,
-    data: ISubmitKYCRequest,
+    adminId: string,
+    note?: string
+  ): Promise<void> {
+    const verification = await prisma.userVerification.findUnique({
+      where: { userId },
+      select: { status: true, isVerified: true, verificationType: true },
+    });
+
+    if (!verification) throw new Error('Verification not found');
+    if (verification.isVerified) throw new Error('User is already verified');
+
+    await prisma.userVerification.update({
+      where: { userId },
+      data: {
+        status: 'verified',
+        isVerified: true,
+        verifiedAt: new Date(),
+        verificationProvider: 'manual',
+        providerReference: `MANUAL-${adminId}-${Date.now()}`,
+        providerResponse: {
+          manuallyVerifiedBy: adminId,
+          note: note || 'Manually verified by admin',
+          verifiedAt: new Date().toISOString(),
+        },
+        ...(verification.verificationType === 'nin'
+          ? { ninVerified: true, ninVerifiedAt: new Date() }
+          : { passportVerified: true, passportVerifiedAt: new Date() }
+        ),
+      },
+    });
+
+    await prisma.notification.create({
+      data: {
+        userId,
+        type: 'kyc_verified',
+        title: '🎉 Identity Verified!',
+        body: 'Your identity has been verified. You can now create begs and receive donations on Plz!',
+        data: { manuallyVerified: true },
+      },
+    });
+
+    logger.info('User manually verified by admin', { userId, adminId });
+  }
+
+  // ============================================
+  // ADMIN — MANUALLY REJECT
+  // ============================================
+  static async manuallyReject(
+    userId: string,
+    adminId: string,
+    reason: string
+  ): Promise<void> {
+    const verification = await prisma.userVerification.findUnique({
+      where: { userId },
+      select: { status: true, isVerified: true, attemptCount: true },
+    });
+
+    if (!verification) throw new Error('Verification not found');
+    if (verification.isVerified) throw new Error('Cannot reject an already verified user');
+
+    const attemptsRemaining = Math.max(0, MAX_ATTEMPTS - verification.attemptCount);
+
+    await prisma.userVerification.update({
+      where: { userId },
+      data: {
+        status: 'rejected',
+        rejectionReason: reason,
+        rejectedAt: new Date(),
+        rejectedBy: adminId,
+      },
+    });
+
+    await prisma.notification.create({
+      data: {
+        userId,
+        type: 'kyc_rejected',
+        title: '❌ Verification Failed',
+        body: reason,
+        data: {
+          attemptsRemaining,
+          canRetry: attemptsRemaining > 0,
+          rejectedBy: 'admin',
+        },
+      },
+    });
+
+    logger.warn('Verification rejected by admin', { userId, adminId, reason });
+  }
+
+  // ============================================
+  // ADMIN — GET VERIFICATION STATS
+  // ============================================
+  static async getVerificationStats() {
+    const [
+      total,
+      pending,
+      documentUploaded,
+      livenessPassed,
+      underReview,
+      verified,
+      rejected,
+      ninCount,
+      passportCount,
+    ] = await Promise.all([
+      prisma.userVerification.count(),
+      prisma.userVerification.count({ where: { status: 'pending' } }),
+      prisma.userVerification.count({ where: { status: 'document_uploaded' } }),
+      prisma.userVerification.count({ where: { status: 'liveness_passed' } }),
+      prisma.userVerification.count({ where: { status: 'under_review' } }),
+      prisma.userVerification.count({ where: { status: 'verified' } }),
+      prisma.userVerification.count({ where: { status: 'rejected' } }),
+      prisma.userVerification.count({ where: { verificationType: 'nin' } }),
+      prisma.userVerification.count({ where: { verificationType: 'passport' } }),
+    ]);
+
+    return {
+      total,
+      byStatus: {
+        pending,
+        documentUploaded,
+        livenessPassed,
+        underReview,
+        verified,
+        rejected,
+      },
+      byType: {
+        nin: ninCount,
+        passport: passportCount,
+      },
+      verificationRate: total > 0
+        ? Math.round((verified / total) * 100)
+        : 0,
+    };
+  }
+
+  // ============================================
+  // RUN VERIFICATION IN BACKGROUND
+  // Calls Prembly after all steps complete
+  // ============================================
+  private static async runVerification(
+    userId: string,
+    verification: any,
     profile: any
   ): Promise<void> {
     try {
-      await prisma.userVerification.update({
-        where: { userId },
-        data: { status: 'under_review' },
-      });
+      let result;
 
-      // ── STEP 1: DOCUMENT CHECK ────────────────
-      if (data.verificationType === 'nin') {
-        const docResult = await DocumentVerificationService.verifyNINDocument(
-          data.nin!,
-          data.ninFrontUrl!,
-          profile.firstName,
-          profile.lastName,
-          data.ninDocumentType!,
-          data.ninBackUrl,
+      if (verification.verificationType === 'nin') {
+        result = await IdentityVerificationService.verifyNIN(
+          verification.nin,
+          {
+            firstName: profile.firstName,
+            lastName: profile.lastName,
+            dateOfBirth: profile.dateOfBirth,
+            gender: profile.gender,
+            phoneNumber: profile.phoneNumber,
+          },
+          {
+            ninMiddleName: verification.ninMiddleName,
+            ninStateOfOrigin: verification.ninStateOfOrigin,
+            ninLGA: verification.ninLGA,
+            ninEnrollmentDate: verification.ninEnrollmentDate?.toISOString() || '',
+          }
         );
-        if (!docResult.valid) {
-          await this.rejectKYC(userId, docResult.error!, 'document_check_failed');
-          return;
-        }
-      }
-
-      if (data.verificationType === 'passport') {
-        const docResult = await DocumentVerificationService.verifyPassportDocument(
-          data.passportNumber!,
-          data.passportBiodataUrl!,
-          profile.firstName,
-          profile.lastName,
+      } else {
+        result = await IdentityVerificationService.verifyPassport(
+          verification.passportNumber,
+          verification.passportExpiry?.toISOString() || '',
+          {
+            firstName: profile.firstName,
+            lastName: profile.lastName,
+            dateOfBirth: profile.dateOfBirth,
+            gender: profile.gender,
+          },
+          {
+            passportMiddleName: verification.passportMiddleName,
+            passportPlaceOfBirth: verification.passportPlaceOfBirth,
+            passportIssueDate: verification.passportIssueDate?.toISOString() || '',
+            passportPlaceOfIssue: verification.passportPlaceOfIssue,
+          }
         );
-        if (!docResult.valid) {
-          await this.rejectKYC(userId, docResult.error!, 'document_check_failed');
-          return;
-        }
-      }
-
-      // ── STEP 2: PROVIDER API ──────────────────
-      let result: IProviderVerificationResult;
-
-      switch (data.verificationType) {
-        case 'bvn':
-          result = await this.verifyBVN(
-            data.bvn!,
-            profile.firstName,
-            profile.lastName,
-          );
-          break;
-        case 'nin':
-          result = await this.verifyNIN(
-            data.nin!,
-            profile.firstName,
-            profile.lastName,
-          );
-          break;
-        case 'passport':
-          result = await this.verifyPassport(
-            data.passportNumber!,
-            profile.firstName,
-            profile.lastName,
-            profile.dateOfBirth.toISOString().split('T')[0],
-            data.passportExpiry!,
-          );
-          break;
-        default:
-          throw new Error('Invalid verification type');
       }
 
       if (result.verified) {
@@ -462,13 +685,13 @@ export class KYCService {
             status: 'verified',
             isVerified: true,
             verifiedAt: new Date(),
-            documentVerified: data.verificationType !== 'bvn',
-            verificationProvider: data.verificationType === 'bvn' ? 'paystack' : 'youverify',
+            verificationProvider: 'prembly',
             providerReference: result.reference,
-            providerResponse: result.data as any,
-            ...(data.verificationType === 'bvn' && { bvnVerified: true, bvnVerifiedAt: new Date() }),
-            ...(data.verificationType === 'nin' && { ninVerified: true, ninVerifiedAt: new Date() }),
-            ...(data.verificationType === 'passport' && { passportVerified: true, passportVerifiedAt: new Date() }),
+            providerResponse: result.data,
+            ...(verification.verificationType === 'nin'
+              ? { ninVerified: true, ninVerifiedAt: new Date() }
+              : { passportVerified: true, passportVerifiedAt: new Date() }
+            ),
           },
         });
 
@@ -478,24 +701,25 @@ export class KYCService {
             type: 'kyc_verified',
             title: '🎉 Identity Verified!',
             body: 'Your identity has been verified. You can now create begs and receive donations on Plz!',
-            data: { verificationType: data.verificationType },
+            data: { verificationType: verification.verificationType },
           },
         });
 
-        logger.info('KYC verified', { userId, type: data.verificationType });
+        logger.info('KYC verified successfully', { userId });
       } else {
-        await this.rejectKYC(userId, result.error!, 'api_verification_failed');
+        await this.rejectKYC(userId, result.error!, verification.attemptCount);
       }
     } catch (error: any) {
-      // Provider down — set to under_review for manual check
       await prisma.userVerification.update({
         where: { userId },
         data: {
           status: 'under_review',
-          providerResponse: { error: error.message } as any,
+          providerResponse: { error: error.message },   // ← no cast needed
         },
       });
-      logger.error('Auto verification error — set to under_review', { error: error.message, userId });
+      logger.error('Verification error — kept under_review', {
+        error: error.message, userId,
+      });
     }
   }
 
@@ -505,19 +729,18 @@ export class KYCService {
   private static async rejectKYC(
     userId: string,
     reason: string,
-    failureType: string
+    currentAttemptCount: number
   ): Promise<void> {
-    const updated = await prisma.userVerification.update({
+    await prisma.userVerification.update({
       where: { userId },
       data: {
         status: 'rejected',
         rejectionReason: reason,
         rejectedAt: new Date(),
       },
-      select: { attemptCount: true },
     });
 
-    const attemptsRemaining = Math.max(0, MAX_ATTEMPTS - updated.attemptCount);
+    const attemptsRemaining = Math.max(0, MAX_ATTEMPTS - currentAttemptCount);
 
     await prisma.notification.create({
       data: {
@@ -526,310 +749,177 @@ export class KYCService {
         title: '❌ Verification Failed',
         body: reason,
         data: {
-          failureType,
           attemptsRemaining,
           canRetry: attemptsRemaining > 0,
         },
       },
     });
 
-    logger.warn('KYC rejected', { userId, reason, failureType });
+    logger.warn('KYC rejected', { userId, reason });
   }
 
   // ============================================
-  // BVN VERIFICATION — Paystack
+  // FORMAT USER RESPONSE
   // ============================================
-  private static async verifyBVN(
-    bvn: string,
-    firstName: string,
-    lastName: string,
-  ): Promise<IProviderVerificationResult> {
-    try {
-      const response = await axios.post(
-        'https://api.paystack.co/bank/resolve_bvn',
-        { bvn },
-        {
-          headers: {
-            Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-
-      const result = response.data?.data;
-      const firstNameMatch = result?.first_name?.toLowerCase().includes(firstName.toLowerCase());
-      const lastNameMatch = result?.last_name?.toLowerCase().includes(lastName.toLowerCase());
-
-      if (!firstNameMatch || !lastNameMatch) {
-        return {
-          success: false,
-          verified: false,
-          reference: bvn,
-          data: result,
-          error: 'The name on your BVN does not match your profile name. Please update your profile name to match your BVN exactly.',
-        };
-      }
-
-      return { success: true, verified: true, reference: bvn, data: result };
-    } catch (error: any) {
-      return {
-        success: false,
-        verified: false,
-        reference: bvn,
-        error: error.response?.data?.message || 'BVN verification failed. Please try again.',
-      };
-    }
+  private static formatResponse(verification: any): IKYCResponse {
+    return {
+      id: verification.id,
+      userId: verification.userId,
+      verificationType: verification.verificationType,
+      status: verification.status,
+      isVerified: verification.isVerified,
+      phoneVerified: verification.phoneVerified,
+      documentVerified: verification.documentVerified,
+      faceLivenessPassed: verification.faceLivenessPassed,
+      faceLivenessScore: verification.faceLivenessScore,
+      verifiedAt: verification.verifiedAt,
+      rejectionReason: verification.rejectionReason,
+      attemptCount: verification.attemptCount,
+      attemptsRemaining: Math.max(0, MAX_ATTEMPTS - verification.attemptCount),
+      canRetry:
+        verification.status === 'rejected' &&
+        verification.attemptCount < MAX_ATTEMPTS,
+      createdAt: verification.createdAt,
+      updatedAt: verification.updatedAt,
+    };
   }
 
   // ============================================
-  // NIN VERIFICATION — Youverify
+  // FORMAT ADMIN RESPONSE
+  // Includes document URLs + full details
   // ============================================
-  private static async verifyNIN(
-    nin: string,
-    firstName: string,
-    lastName: string,
-  ): Promise<IProviderVerificationResult> {
-    try {
-      const response = await axios.post(
-        'https://api.youverify.co/v2/api/identity/ng/nin',
-        { id: nin, isSubjectConsent: true },
-        {
-          headers: {
-            token: process.env.YOUVERIFY_API_KEY,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
+  private static formatAdminResponse(verification: any) {
+    return {
+      id: verification.id,
+      userId: verification.userId,
+      user: verification.user
+        ? {
+            id: verification.user.id,
+            email: verification.user.email,
+            username: verification.user.username,
+            firstName: verification.user.profile?.firstName,
+            lastName: verification.user.profile?.lastName,
+            phoneNumber: verification.user.profile?.phoneNumber,
+            dateOfBirth: verification.user.profile?.dateOfBirth,
+            gender: verification.user.profile?.gender,
+          }
+        : null,
+      verificationType: verification.verificationType,
+      status: verification.status,
+      isVerified: verification.isVerified,
+      phoneVerified: verification.phoneVerified,
+      documentVerified: verification.documentVerified,
+      faceLivenessPassed: verification.faceLivenessPassed,
+      faceLivenessScore: verification.faceLivenessScore,
+      faceLivenessUrl: verification.faceLivenessUrl,
 
-      const result = response.data?.data;
-      const firstNameMatch = result?.firstName?.toLowerCase().includes(firstName.toLowerCase());
-      const lastNameMatch = result?.lastName?.toLowerCase().includes(lastName.toLowerCase());
+      // NIN details — masked for security
+      nin: verification.nin
+        ? verification.nin.substring(0, 4) + '*******'
+        : null,
+      ninDocumentType: verification.ninDocumentType,
+      ninMiddleName: verification.ninMiddleName,
+      ninStateOfOrigin: verification.ninStateOfOrigin,
+      ninLGA: verification.ninLGA,
+      ninEnrollmentDate: verification.ninEnrollmentDate,
+      ninFrontUrl: verification.ninFrontUrl,
+      ninBackUrl: verification.ninBackUrl,
+      ninVerified: verification.ninVerified,
+      ninVerifiedAt: verification.ninVerifiedAt,
 
-      if (!firstNameMatch || !lastNameMatch) {
-        return {
-          success: false,
-          verified: false,
-          reference: nin,
-          data: result,
-          error: 'The name on your NIN does not match your profile name. Please update your profile name to match your NIN exactly.',
-        };
-      }
+      // Passport details — masked for security
+      passportNumber: verification.passportNumber
+        ? verification.passportNumber.substring(0, 3) + '*****'
+        : null,
+      passportMiddleName: verification.passportMiddleName,
+      passportPlaceOfBirth: verification.passportPlaceOfBirth,
+      passportIssueDate: verification.passportIssueDate,
+      passportExpiry: verification.passportExpiry,
+      passportPlaceOfIssue: verification.passportPlaceOfIssue,
+      passportBiodataUrl: verification.passportBiodataUrl,
+      passportVerified: verification.passportVerified,
+      passportVerifiedAt: verification.passportVerifiedAt,
 
-      return { success: true, verified: true, reference: nin, data: result };
-    } catch (error: any) {
-      return {
-        success: false,
-        verified: false,
-        reference: nin,
-        error: error.response?.data?.message || 'NIN verification failed. Please try again.',
-      };
-    }
-  }
+      // Status info
+      verifiedAt: verification.verifiedAt,
+      rejectionReason: verification.rejectionReason,
+      rejectedAt: verification.rejectedAt,
+      rejectedBy: verification.rejectedBy,
+      attemptCount: verification.attemptCount,
+      attemptsRemaining: Math.max(0, MAX_ATTEMPTS - verification.attemptCount),
+      canRetry:
+        verification.status === 'rejected' &&
+        verification.attemptCount < MAX_ATTEMPTS,
 
-  // ============================================
-  // PASSPORT VERIFICATION — Youverify
-  // ============================================
-  private static async verifyPassport(
-    passportNumber: string,
-    firstName: string,
-    lastName: string,
-    dateOfBirth: string,
-    passportExpiry: string,
-  ): Promise<IProviderVerificationResult> {
-    try {
-      if (new Date(passportExpiry) < new Date()) {
-        return {
-          success: false,
-          verified: false,
-          reference: passportNumber,
-          error: 'Your passport has expired. Please use a valid passport or choose BVN/NIN instead.',
-        };
-      }
+      // Provider
+      verificationProvider: verification.verificationProvider,
+      providerReference: verification.providerReference,
 
-      const response = await axios.post(
-        'https://api.youverify.co/v2/api/identity/ng/passport',
-        {
-          id: passportNumber,
-          isSubjectConsent: true,
-          lastName,
-          dateOfBirth,
-        },
-        {
-          headers: {
-            token: process.env.YOUVERIFY_API_KEY,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-
-      const result = response.data?.data;
-      return { success: true, verified: true, reference: passportNumber, data: result };
-    } catch (error: any) {
-      return {
-        success: false,
-        verified: false,
-        reference: passportNumber,
-        error: error.response?.data?.message || 'Passport verification failed. Please try again.',
-      };
-    }
-  }
-
-  // ============================================
-  // SMS — Termii (popular in Nigeria)
-  // ============================================
-  private static async sendSMS(phoneNumber: string, message: string): Promise<void> {
-    try {
-      await axios.post(
-        'https://api.ng.termii.com/api/sms/send',
-        {
-          to: phoneNumber,
-          from: 'Plz',
-          sms: message,
-          type: 'plain',
-          channel: 'generic',
-          api_key: process.env.TERMII_API_KEY,
-        },
-        { headers: { 'Content-Type': 'application/json' } }
-      );
-      logger.info('SMS sent', { phone: phoneNumber });
-    } catch (error: any) {
-      logger.error('SMS sending failed', { error: error.message });
-      throw new Error('Failed to send OTP. Please try again.');
-    }
-  }
-
-  // ============================================
-  // VALIDATE KYC DATA
-  // ============================================
-  private static validateKYCData(data: ISubmitKYCRequest): void {
-    switch (data.verificationType) {
-      case 'bvn':
-        if (!data.bvn) throw new Error('BVN is required');
-        if (!/^\d{11}$/.test(data.bvn)) throw new Error('BVN must be exactly 11 digits');
-        break;
-      case 'nin':
-        if (!data.nin) throw new Error('NIN is required');
-        if (!/^\d{11}$/.test(data.nin)) throw new Error('NIN must be exactly 11 digits');
-        if (!data.ninDocumentType) throw new Error('Please select your NIN document type (slip or id_card)');
-        if (!data.ninFrontUrl) throw new Error('Front of your NIN document is required');
-        if (data.ninDocumentType === 'id_card' && !data.ninBackUrl) {
-          throw new Error('Back of your NIN card is required');
-        }
-        break;
-      case 'passport':
-        if (!data.passportNumber) throw new Error('Passport number is required');
-        if (!data.passportExpiry) throw new Error('Passport expiry date is required');
-        if (!data.passportBiodataUrl) throw new Error('Passport biodata page upload is required');
-        if (new Date(data.passportExpiry) < new Date()) {
-          throw new Error('Your passport has expired. Please use BVN or NIN instead.');
-        }
-        break;
-      default:
-        throw new Error('Invalid verification type. Must be bvn, nin, or passport');
-    }
-  }
-
-  // ============================================
-  // BUILD TYPE DATA FOR UPSERT
-  // Clears other type fields to avoid stale data
-  // ============================================
-  private static buildTypeData(data: ISubmitKYCRequest) {
-    switch (data.verificationType) {
-      case 'bvn':
-        return {
-          verificationType: 'bvn',
-          bvn: data.bvn,
-          nin: null, ninDocumentType: null, ninFrontUrl: null, ninBackUrl: null,
-          passportNumber: null, passportExpiry: null, passportBiodataUrl: null,
-        };
-      case 'nin':
-        return {
-          verificationType: 'nin',
-          nin: data.nin,
-          ninDocumentType: data.ninDocumentType,
-          ninFrontUrl: data.ninFrontUrl,
-          ninBackUrl: data.ninBackUrl || null,
-          bvn: null,
-          passportNumber: null, passportExpiry: null, passportBiodataUrl: null,
-        };
-      case 'passport':
-        return {
-          verificationType: 'passport',
-          passportNumber: data.passportNumber,
-          passportExpiry: data.passportExpiry ? new Date(data.passportExpiry) : null,
-          passportBiodataUrl: data.passportBiodataUrl,
-          bvn: null,
-          nin: null, ninDocumentType: null, ninFrontUrl: null, ninBackUrl: null,
-        };
-    }
+      createdAt: verification.createdAt,
+      updatedAt: verification.updatedAt,
+    };
   }
 
   // ============================================
   // BUILD UI MESSAGE
   // ============================================
   private static buildUIMessage(
-    status: string | null,
+    status: KYCStatus | null,
     canRetry: boolean,
     attemptsRemaining: number
-  ) {
+  ): any {
     if (!status) {
       return {
-        title: 'Verify Your Identity',
-        body: 'To create a beg and receive donations, we need to verify your identity. It takes less than 2 minutes.',
-        buttonLabel: 'Start Verification',
+        title: 'Verify your identity',
+        body: 'To create a beg and receive donations, verify your identity. Takes less than 3 minutes.',
+        buttonLabel: 'Start verification',
         buttonUrl: '/kyc/start',
       };
     }
 
     const messages: Record<string, any> = {
       pending: {
-        title: 'Verification Pending',
-        body: 'Your verification is being processed. This usually takes less than 2 minutes.',
-        buttonLabel: 'Check Status',
-        buttonUrl: '/kyc/status',
+        title: 'Verify your phone',
+        body: 'First step — verify your phone number with an OTP.',
+        buttonLabel: 'Verify phone',
+        buttonUrl: '/kyc/phone',
+      },
+      document_uploaded: {
+        title: 'Face liveness check',
+        body: 'Document uploaded! Now take a selfie to confirm you are a real person.',
+        buttonLabel: 'Take selfie',
+        buttonUrl: '/kyc/liveness',
+      },
+      liveness_passed: {
+        title: 'Submit verification',
+        body: 'Almost done! Submit your verification for final check.',
+        buttonLabel: 'Submit',
+        buttonUrl: '/kyc/submit',
       },
       under_review: {
-        title: 'Under Review',
+        title: 'Under review',
         body: 'Our team is reviewing your documents. You will be notified once complete.',
-        buttonLabel: 'Check Status',
+        buttonLabel: 'Check status',
         buttonUrl: '/kyc/status',
       },
       verified: {
-        title: 'Identity Verified ✅',
+        title: 'Identity verified',
         body: 'Your identity has been verified. You can now create begs on Plz.',
-        buttonLabel: 'Create a Beg',
+        buttonLabel: 'Create a beg',
         buttonUrl: '/begs/create',
       },
       rejected: {
-        title: 'Verification Failed',
+        title: 'Verification failed',
         body: canRetry
-          ? `Please correct your details and try again. You have ${attemptsRemaining} attempt${attemptsRemaining > 1 ? 's' : ''} remaining.`
-          : 'Maximum attempts reached. Please contact support@plz.app',
-        buttonLabel: canRetry ? 'Try Again' : 'Contact Support',
-        buttonUrl: canRetry ? '/kyc/start' : 'mailto:support@plz.app',
+          ? `Please correct your details and try again. You have ${attemptsRemaining} attempt${
+              attemptsRemaining > 1 ? 's' : ''
+            } remaining.`
+          : 'Maximum attempts reached. Please contact support@plz.ng',
+        buttonLabel: canRetry ? 'Try again' : 'Contact support',
+        buttonUrl: canRetry ? '/kyc/update' : 'mailto:support@plz.ng',
       },
     };
 
     return messages[status] || messages.pending;
-  }
-
-  // ============================================
-  // FORMAT RESPONSE
-  // ============================================
-  private static formatResponse(verification: any): IKYCResponse {
-    return {
-      userId: verification.userId,
-      verificationType: verification.verificationType,
-      status: verification.status,
-      isVerified: verification.isVerified,
-      phoneVerified: verification.phoneVerified,
-      verifiedAt: verification.verifiedAt,
-      rejectionReason: verification.rejectionReason,
-      attemptCount: verification.attemptCount,
-      attemptsRemaining: Math.max(0, MAX_ATTEMPTS - verification.attemptCount),
-      canRetry: verification.status === 'rejected' && verification.attemptCount < MAX_ATTEMPTS,
-      createdAt: verification.createdAt,
-      updatedAt: verification.updatedAt,
-    };
   }
 }

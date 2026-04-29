@@ -3,14 +3,14 @@
  */
 
 export type BegStatus = 'active' | 'funded' | 'expired' | 'cancelled' | 'flagged' | 'rejected';
-export type TrustTier = 1 | 2 | 3;
+export type TrustTier = 1 | 2 | 3 | 4;
 export type ExpiryHours = 24 | 72 | 168;
 
 export enum TrustTierName {
   NEWCOMER = 'Newcomer',
-  VERIFIED_BEGINNER = 'Verified Beginner',
+  VERIFIED_USER = 'Verified User',
   TRUSTED_USER = 'Trusted User',
-  SUPER_ASKER = 'Super Asker',
+  SUPER_USER = 'Super User',
 }
 
 export interface ICategory {
@@ -28,7 +28,7 @@ export interface IBeg {
   userId: string;
   categoryId: string;
   description: string | null;
-  expiryHours: ExpiryHours;          // ← ADDED
+  expiryHours: ExpiryHours;
   amountRequested: number;
   amountRaised: number;
   status: BegStatus;
@@ -50,15 +50,15 @@ export interface IBeg {
 
 export interface ICreateBegRequest {
   categoryId: string;
-  description?: string | null;       // Optional, max 40 words / 300 characters
-  amountRequested: number;           // Required, min ₦100
-  expiryHours?: ExpiryHours;         // ← ADDED, defaults to 24
+  description?: string | null;
+  amountRequested: number;
+  expiryHours?: ExpiryHours;
   mediaType?: 'video' | 'audio' | 'text';
   mediaUrl?: string;
 }
 
 export interface IUpdateBegRequest {
-  description?: string | null;       // Max 40 words / 300 characters
+  description?: string | null;
   amountRequested?: number;
   mediaType?: 'video' | 'audio' | 'text';
   mediaUrl?: string;
@@ -73,7 +73,7 @@ export interface IBegResponse {
   firstName?: string;
   lastName?: string;
   description: string | null;
-  expiryHours: ExpiryHours;          // ← ADDED
+  expiryHours: ExpiryHours;
   category: {
     id: string;
     name: string;
@@ -91,7 +91,7 @@ export interface IBegResponse {
   expiresAt: Date;
   createdAt: Date;
   timeRemaining?: string;
-  availableExtensions?: {            // ← ADDED: for the extension popup
+  availableExtensions?: {
     hours: ExpiryHours;
     label: string;
   }[];
@@ -111,20 +111,27 @@ export interface IAdminBegResponse extends IBegResponse {
   };
 }
 
+// ============================================
+// TRUST TIER CONFIG
+// ============================================
 export interface ITrustTierConfig {
   tier: TrustTier;
   name: TrustTierName;
+  badge: string;
+  description: string;
   maxAmount: number;
-  maxAmountUSD: number;
   requestsPerDay: number;
   cooldownHours: number;
-  superAskPerMonth: number;
+  cooldownDays: number;
+  requiredDonationTotal: number;
+  requiresVerification: boolean;
 }
 
 export interface ICooldownInfo {
   isOnCooldown: boolean;
   nextRequestAllowedAt: Date | null;
   hoursRemaining?: number;
+  daysRemaining?: number;
   message?: string;
 }
 
@@ -135,13 +142,19 @@ export interface IUserStats {
   abuseFlags: number;
 }
 
+// ============================================
+// TRUST SCORE
+// ============================================
 export interface ITrustScore {
   score: number;
   tier: TrustTier;
   tierName: TrustTierName;
+  badge: string;
+  description: string;
   maxAmount: number;
   requestsPerDay: number;
   cooldownHours: number;
+  cooldownDays: number;
 }
 
 export interface IBegWithRelations {
@@ -149,7 +162,7 @@ export interface IBegWithRelations {
   userId: string;
   categoryId: string;
   description: string | null;
-  expiryHours: number;               // ← ADDED
+  expiryHours: number;
   amountRequested: any;
   amountRaised: any;
   status: string;
@@ -181,42 +194,72 @@ export interface IBegWithRelations {
     profile: {
       displayName: string | null;
       isAnonymous: boolean;
-      firstName: string | null;      // ← ADDED (used in transformBegResponse)
-      lastName: string | null;       // ← ADDED
+      firstName: string | null;
+      lastName: string | null;
     } | null;
   };
 }
 
+// ============================================
+// UI MESSAGE
+// Shown as banner/toast when beg is blocked
+// ============================================
+export interface IUIMessage {
+  title: string;
+  body: string;
+  action: string;
+}
+
+// ============================================
+// TIER PROGRESSION CHECK RESULT
+// ============================================
+export interface ITierProgressionResult {
+  allowed: boolean;
+  errorMessage?: string;
+  uiMessage?: IUIMessage;
+}
+
+// ============================================
+// TRUST PROGRESS
+// ============================================
 export interface ITrustProgress {
   currentScore: number;
-  currentTier: number;
+  currentTier: TrustTier;
   currentTierName: string;
-  nextTier: number | null;
+  currentTierBadge: string;
+  nextTier: TrustTier | null;
   nextTierName: string | null;
+  nextTierBadge: string | null;
   pointsToNextTier: number | null;
   progressPercentage: number;
   capabilities: {
     maxAmount: number;
     requestsPerDay: number;
     cooldownHours: number;
+    cooldownDays: number;
   };
   nextCapabilities: {
     maxAmount: number;
     requestsPerDay: number;
     cooldownHours: number;
+    cooldownDays: number;
   } | null;
   breakdown: {
-    successfulBegs: number;
-    giveBackBonus: number;
-    emailVerified: number;
-    phoneVerified: number;
-    documentVerified: number;
-    // addressVerified: number;
-    penalties: number;
+    isVerified: boolean;
+    hasDonated: boolean;
+    totalDonated: number;
+    phoneVerified: boolean;
+    documentVerified: boolean;
+    abuseFlags: number;
   };
+  nextTierRequirements: string[];
   recommendations: string[];
+  isMaxTier: boolean;
 }
 
+// ============================================
+// UNCHANGED
+// ============================================
 export interface IWithdrawal {
   id: string;
   userId: string;

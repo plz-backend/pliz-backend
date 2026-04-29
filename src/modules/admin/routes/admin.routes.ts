@@ -48,6 +48,28 @@ import {
 } from '../../Story/validations/story.validation';
 import { validateRequest } from '../../auth/middleware/auth/validateRequest';
 
+// Support Ticket Management 
+import { getAllTickets } from '../controllers/Support/get-all-tickets.controller';
+import { adminReply } from '../controllers/Support/admin-reply.controller';
+import { assignTicket } from '../controllers/Support/assign-ticket.controller';
+import { updateTicketStatus } from '../controllers/Support/update-ticket-status.controller';
+import {
+  adminReplyValidation,
+  updateStatusValidation,
+} from '../../Support/validations/support.validation';
+
+// KYC Management
+import { getAllVerifications } from '../controllers/KYC/get-all-verifications.controller';
+import { getVerification } from '../controllers/KYC/get-verification.controller';
+import { manuallyVerify } from '../controllers/KYC/manually-verify.controller';
+import { manuallyReject } from '../controllers/KYC/manually-reject.controller';
+import { getVerificationStats } from '../controllers/KYC/get-verification-stats.controller';
+import {
+  manuallyVerifyValidation,
+  manuallyRejectValidation,
+} from '../../KYC/validations/kyc.validation';
+
+
 const router = Router();
 
 // All admin routes require authentication + admin role
@@ -100,11 +122,53 @@ router.get('/activity', getAdminActions);
 // STORY MANAGEMENT
 // ============================================
 
-router.get('/', adminGetStories);                                                           // GET  /api/admin/stories?filter=pending
+router.get('/', adminGetStories);                                                                 // GET  /api/admin/stories?filter=pending
 router.get('/:id', storyIdValidation, validateRequest, adminGetStoryById);                        // GET  /api/admin/stories/:id
 router.patch('/:id/approve', storyIdValidation, validateRequest, adminApproveStory);              // PATCH /api/admin/stories/:id/approve
 router.patch('/:id/reject', rejectStoryValidation, validateRequest, adminRejectStory);            // PATCH /api/admin/stories/:id/reject
 router.patch('/:id/toggle-visibility', storyIdValidation, validateRequest, adminToggleVisibility);// PATCH /api/admin/stories/:id/toggle-visibility
-router.delete('/:id', storyIdValidation, validateRequest, adminDeleteStory);                      // DELETE /api/admin/stories/:id
+router.delete('/:id', storyIdValidation, validateRequest, adminDeleteStory);    
+
+// ============================================
+// SUPPORT TICKET MANAGEMENT (optional)
+// ============================================
+router.get('/tickets', authenticate, requireAdmin, getAllTickets);
+router.post('/tickets/:id/reply', authenticate, requireAdmin, adminReplyValidation, validateRequest, adminReply);
+router.patch('/tickets/:id/assign', authenticate, requireAdmin, assignTicket);
+router.patch('/tickets/:id/status', authenticate, requireAdmin, updateStatusValidation, validateRequest, updateTicketStatus);
+
+
+// ============================================
+// KYC MANAGEMENT
+// ============================================
+// GET /api/admin/kyc/stats — must be before /:userId
+router.get('/stats', authenticate, requireAdmin, getVerificationStats);
+
+// GET /api/admin/kyc
+router.get('/', authenticate, requireAdmin, getAllVerifications);
+
+// GET /api/admin/kyc/:userId
+router.get('/:userId', authenticate, requireAdmin, getVerification);
+
+// PATCH /api/admin/kyc/:userId/verify
+router.patch(
+'/:userId/verify',
+  authenticate,
+  requireAdmin,
+  manuallyVerifyValidation,
+  validateRequest,
+  manuallyVerify
+);
+
+// PATCH /api/admin/kyc/:userId/reject
+router.patch(
+  '/:userId/reject',
+  authenticate,
+  requireAdmin,
+  manuallyRejectValidation,
+  validateRequest,
+  manuallyReject
+);
+
 
 export default router;

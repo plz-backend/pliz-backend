@@ -1,337 +1,417 @@
-import prisma from '../../src/config/database';
-import { ITrustScore, ITrustProgress } from '../modules/Beg/types/beg.interface'; 
-import { getTrustTierConfig } from '../../src/config/trust_tiers';
-import logger from '../../src/config/logger';
+import prisma from '../config/database';
+import {
+  ITrustScore,
+  ITrustProgress,
+  TrustTier,
+} from '../modules/Beg/types/beg.interface';
+import {
+  getTrustTierConfig,
+  getNextTierConfig,
+} from '../config/trust_tiers';
+import logger from '../config/logger';
 import redisClient from '../config/redis';
 
-/**
- * Trust Score Service with Redis Caching
- * Calculates and manages user trust scores
- */
+
+ // ============================================
+  // GET USER TIER
+  // Determined purely by:
+  // → KYC verification status
+  // → Total amount donated
+  //
+  // Tier 1 → Newcomer     (default)
+  // Tier 2 → Verified User (verified + any donation)
+  // Tier 3 → Trusted User  (verified + ₦10k donated)
+  // Tier 4 → Super User    (verified + ₦50k donated)
+  // ============================================
+
+
 export class TrustScoreService {
   private static CACHE_PREFIX = 'trust_score:';
   private static CACHE_TTL = 3600; // 1 hour
 
-  /**
-   * Calculate trust score for a user
-   * Based on: successful begs, donations given, verification, community reports
-   */
-  static async calculateTrustScore(userId: string): Promise<number> {
+  // ============================================
+  // GET USER TIER
+  // Cached in Redis for 1 hour
+  // ============================================
+  static async getUserTier(userId: string): Promise<number> {
     try {
+      const cacheKey = `${this.CACHE_PREFIX}tier:${userId}`;
+
       // Check cache first
-      const cacheKey = `${this.CACHE_PREFIX}${userId}`;
       const cached = await redisClient.getClient().get(cacheKey);
-      
       if (cached) {
-        logger.info('Trust score retrieved from cache', { userId });
+        logger.info('User tier loaded from cache', { userId });
         return parseInt(cached);
       }
 
-      // Get user stats
-      const stats = await prisma.userStats.findUnique({
-        where: { userId },
-      });
-
-      // Get user trust
-      const trust = await prisma.userTrust.findUnique({
-        where: { userId },
-      });
-
-      // Get verification status
-      const verification = await prisma.userVerification.findUnique({
-        where: { userId },
-      });
-
-      let score = 0;
-
-      // Base score from successful begs
-      if (stats) {
-        score += Math.min(stats.requestsCount * 5, 30); // Max 30 points
-
-        // Points for donations given (give back bonus)
-        if (stats.totalDonated && stats.totalDonated.gt(0)) {
-          score += 15;
-        }
-
-        // Penalty for abuse flags
-        score -= stats.abuseFlags * 20;
-      }
-
-      // Verification bonus
-      if (verification) {
-        if (verification.phoneVerified) score += 5;
-        if (verification.documentVerified) score += 10;
-        // if (verification.addressVerified) score += 5;
-      }
-
-      // Ensure score is between 0 and 100
-      score = Math.max(0, Math.min(100, score));
-
-      // Update trust score in database
-      if (trust) {
-        await prisma.userTrust.update({
+      const [verification, stats] = await Promise.all([
+        prisma.userVerification.findUnique({
           where: { userId },
-          data: { trustTier: this.getTierFromScore(score) },
-        });
-      } else {
-        await prisma.userTrust.create({
-          data: {
-            userId,
-            trustTier: this.getTierFromScore(score),
-          },
-        });
+          select: { isVerified: true },
+        }),
+        prisma.userStats.findUnique({
+          where: { userId },
+          select: { totalDonated: true },
+        }),
+      ]);
+
+      const isVerified = verification?.isVerified || false;
+      const totalDonated = stats?.totalDonated
+        ? Number(stats.totalDonated)
+        : 0;
+      const hasDonated = totalDonated > 0;
+
+      // ── Tier 4: Super User ────────────────────
+      // verified + donated ≥ ₦50,000
+      if (isVerified && totalDonated >= 50000) {
+        await this.cacheTier(cacheKey, 4);
+        return 4;
       }
 
-      // Cache the score for 1 hour
-      await redisClient.getClient().setEx(cacheKey, this.CACHE_TTL, score.toString());
+      // ── Tier 3: Trusted User ──────────────────
+      // verified + donated ≥ ₦10,000
+      if (isVerified && totalDonated >= 10000) {
+        await this.cacheTier(cacheKey, 3);
+        return 3;
+      }
 
-      logger.info('Trust score calculated and cached', { userId, score });
+      // ── Tier 2: Verified User ─────────────────
+      // verified + any donation
+      if (isVerified && hasDonated) {
+        await this.cacheTier(cacheKey, 2);
+        return 2;
+      }
 
-      return score;
+      // ── Tier 1: Newcomer ──────────────────────
+      await this.cacheTier(cacheKey, 1);
+      return 1;
     } catch (error) {
-      logger.error('Failed to calculate trust score', { error, userId });
-      return 0;
+      logger.error('Failed to get user tier', { error, userId });
+      return 1;
     }
   }
 
-  /**
-   * Invalidate trust score cache (call when stats change)
-   */
-  static async invalidateTrustScoreCache(userId: string): Promise<void> {
+  // ============================================
+  // GET USER TRUST INFO
+  // Cached in Redis for 1 hour
+  // ============================================
+  static async getUserTrustInfo(userId: string): Promise<ITrustScore> {
     try {
-      const cacheKey = `${this.CACHE_PREFIX}${userId}`;
-      await redisClient.getClient().del(cacheKey);
-      logger.info('Trust score cache invalidated', { userId });
-    } catch (error) {
-      logger.error('Failed to invalidate trust score cache', { error, userId });
-    }
-  }
+      const cacheKey = `${this.CACHE_PREFIX}info:${userId}`;
 
-  /**
-   * Get trust tier from score
-   */
-  static getTierFromScore(score: number): number {
-    if (score >= 75) return 3; // Super Asker
-    if (score >= 50) return 3; // Trusted User
-    if (score >= 20) return 2; // Verified Beginner
-    return 1; // Newcomer
-  }
+      // Check cache first
+      const cached = await redisClient.getClient().get(cacheKey);
+      if (cached) {
+        logger.info('User trust info loaded from cache', { userId });
+        return JSON.parse(cached);
+      }
 
-  /**
-   * Get next tier threshold
-   * ✅ ADD THIS METHOD
-   */
-  static getNextTierThreshold(currentScore: number): { tier: number; threshold: number } | null {
-    if (currentScore < 20) return { tier: 2, threshold: 20 };
-    if (currentScore < 50) return { tier: 3, threshold: 50 };
-    if (currentScore < 75) return { tier: 3, threshold: 75 }; // Super asker level
-    return null; // Max tier reached
-  }
+      const tier = await this.getUserTier(userId);
+      const tierConfig = getTrustTierConfig(tier);
 
-  /**
-   * Get tier range (min-max scores for a tier)
-   * ✅ ADD THIS METHOD
-   */
-  private static getTierRange(tier: number): { min: number; max: number } {
-    if (tier === 1) return { min: 0, max: 19 };
-    if (tier === 2) return { min: 20, max: 49 };
-    if (tier === 3) return { min: 50, max: 100 };
-    return { min: 0, max: 100 };
-  }
-
-  /**
-   * Generate recommendations for leveling up
-   * ✅ ADD THIS METHOD
-   */
-  private static generateRecommendations(
-    currentScore: number,
-    breakdown: any,
-    verification: any
-  ): string[] {
-    const recommendations: string[] = [];
-
-    // Email verification
-    if (breakdown.emailVerified === 0) {
-      recommendations.push('Verify your email to earn +5 points');
-    }
-
-    // Phone verification
-    if (!verification?.phoneVerified) {
-      recommendations.push('Verify your phone number to earn +5 points');
-    }
-
-    // Document verification
-    if (!verification?.documentVerified) {
-      recommendations.push('Complete ID verification to earn +10 points');
-    }
-
-    // Address verification
-    if (!verification?.addressVerified) {
-      recommendations.push('Verify your address to earn +5 points');
-    }
-
-    // Give back bonus
-    if (breakdown.giveBackBonus === 0) {
-      recommendations.push('Donate to someone to earn +15 points (give back bonus)');
-    }
-
-    // Create more successful begs
-    if (breakdown.successfulBegs < 30) {
-      const begsNeeded = Math.ceil((30 - breakdown.successfulBegs) / 5);
-      recommendations.push(
-        `Create ${begsNeeded} more successful beg${begsNeeded > 1 ? 's' : ''} to maximize this category (+${30 - breakdown.successfulBegs} points available)`
-      );
-    }
-
-    // If no recommendations, user is maxed out
-    if (recommendations.length === 0 && currentScore < 100) {
-      recommendations.push('Keep creating successful begs and helping others to maintain your tier!');
-    }
-
-    return recommendations;
-  }
-
-  /**
-   * Get detailed trust progress information
-   * ✅ ADD THIS METHOD - THE MAIN ONE YOU'RE MISSING
-   */
-  static async getTrustProgress(userId: string): Promise<ITrustProgress> {
-    try {
-      // Calculate current score
-      const currentScore = await this.calculateTrustScore(userId);
-      const currentTier = this.getTierFromScore(currentScore);
-      const currentTierConfig = getTrustTierConfig(currentTier);
-
-      // Get stats for breakdown
-      const stats = await prisma.userStats.findUnique({ where: { userId } });
-      const verification = await prisma.userVerification.findUnique({ where: { userId } });
-
-      // Calculate breakdown
-      const breakdown = {
-        successfulBegs: stats ? Math.min(stats.requestsCount * 5, 30) : 0,
-        giveBackBonus: stats && stats.totalDonated && stats.totalDonated.gt(0) ? 15 : 0,
-        emailVerified: 0,
-        phoneVerified: verification?.phoneVerified ? 5 : 0,
-        documentVerified: verification?.documentVerified ? 10 : 0,
-        // addressVerified: verification?.addressVerified ? 5 : 0,
-        penalties: stats ? stats.abuseFlags * -20 : 0,
+      const trustInfo: ITrustScore = {
+        score: 0,
+        tier: tier as TrustTier,
+        tierName: tierConfig.name,
+        badge: tierConfig.badge,
+        description: tierConfig.description,
+        maxAmount: tierConfig.maxAmount,
+        requestsPerDay: tierConfig.requestsPerDay,
+        cooldownHours: tierConfig.cooldownHours,
+        cooldownDays: tierConfig.cooldownDays,
       };
 
-      // Get email verification status from user
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-        select: { isEmailVerified: true },
-      });
-      breakdown.emailVerified = user?.isEmailVerified ? 5 : 0;
+      // Cache for 1 hour
+      await redisClient.getClient().setEx(
+        cacheKey,
+        this.CACHE_TTL,
+        JSON.stringify(trustInfo)
+      );
 
-      // Calculate next tier info
-      const nextTierInfo = this.getNextTierThreshold(currentScore);
-      let nextCapabilities = null;
-      let pointsToNextTier = null;
+      logger.info('User trust info cached', { userId, tier });
+
+      return trustInfo;
+    } catch (error) {
+      logger.error('Failed to get user trust info', { error, userId });
+      const defaultConfig = getTrustTierConfig(1);
+      return {
+        score: 0,
+        tier: 1,
+        tierName: defaultConfig.name,
+        badge: defaultConfig.badge,
+        description: defaultConfig.description,
+        maxAmount: defaultConfig.maxAmount,
+        requestsPerDay: defaultConfig.requestsPerDay,
+        cooldownHours: defaultConfig.cooldownHours,
+        cooldownDays: defaultConfig.cooldownDays,
+      };
+    }
+  }
+
+  // ============================================
+  // GET TRUST PROGRESS
+  // Cached in Redis for 1 hour
+  // ============================================
+  static async getTrustProgress(userId: string): Promise<ITrustProgress> {
+    try {
+      const cacheKey = `${this.CACHE_PREFIX}progress:${userId}`;
+
+      // Check cache first
+      const cached = await redisClient.getClient().get(cacheKey);
+      if (cached) {
+        logger.info('Trust progress loaded from cache', { userId });
+        return JSON.parse(cached);
+      }
+
+      const [verification, stats] = await Promise.all([
+        prisma.userVerification.findUnique({
+          where: { userId },
+          select: {
+            isVerified: true,
+            phoneVerified: true,
+            documentVerified: true,
+          },
+        }),
+        prisma.userStats.findUnique({
+          where: { userId },
+          select: {
+            totalDonated: true,
+            abuseFlags: true,
+          },
+        }),
+      ]);
+
+      const isVerified = verification?.isVerified || false;
+      const totalDonated = stats?.totalDonated
+        ? Number(stats.totalDonated)
+        : 0;
+      const hasDonated = totalDonated > 0;
+
+      const currentTier = await this.getUserTier(userId);
+      const currentTierConfig = getTrustTierConfig(currentTier);
+      const nextTierConfig = getNextTierConfig(currentTier);
+
+      // ── PROGRESS + NEXT TIER REQUIREMENTS ────
+      const nextTierRequirements: string[] = [];
       let progressPercentage = 0;
 
-      if (nextTierInfo) {
-        const nextTierConfig = getTrustTierConfig(nextTierInfo.tier);
-        nextCapabilities = {
-          maxAmount: nextTierConfig.maxAmount,
-          requestsPerDay: nextTierConfig.requestsPerDay,
-          cooldownHours: nextTierConfig.cooldownHours,
-        };
-        pointsToNextTier = nextTierInfo.threshold - currentScore;
-        
-        // Calculate progress percentage within current tier range
-        const currentThresholds = this.getTierRange(currentTier);
-        const rangeSize = nextTierInfo.threshold - currentThresholds.min;
-        const currentProgress = currentScore - currentThresholds.min;
-        progressPercentage = Math.round((currentProgress / rangeSize) * 100);
-      } else {
-        // Max tier reached
+      if (currentTier === 1) {
+        // Newcomer → Verified User
+        // Need: KYC + any donation
+        if (!isVerified) {
+          nextTierRequirements.push(
+            'Complete KYC identity verification'
+          );
+        }
+        if (!hasDonated) {
+          nextTierRequirements.push(
+            'Make at least 1 donation of any amount'
+          );
+        }
+        const completedSteps = [isVerified, hasDonated].filter(Boolean).length;
+        progressPercentage = Math.round((completedSteps / 2) * 100);
+
+      } else if (currentTier === 2) {
+        // Verified User → Trusted User
+        // Need: total donated ≥ ₦10,000
+        const needed = 10000;
+        progressPercentage = Math.min(
+          100,
+          Math.round((totalDonated / needed) * 100)
+        );
+        if (totalDonated < needed) {
+          const remaining = (needed - totalDonated).toLocaleString();
+          nextTierRequirements.push(
+            `Donate ₦${remaining} more (₦${totalDonated.toLocaleString()} of ₦${needed.toLocaleString()} donated)`
+          );
+        }
+
+      } else if (currentTier === 3) {
+        // Trusted User → Super User
+        // Need: total donated ≥ ₦50,000
+        const needed = 50000;
+        progressPercentage = Math.min(
+          100,
+          Math.round((totalDonated / needed) * 100)
+        );
+        if (totalDonated < needed) {
+          const remaining = (needed - totalDonated).toLocaleString();
+          nextTierRequirements.push(
+            `Donate ₦${remaining} more (₦${totalDonated.toLocaleString()} of ₦${needed.toLocaleString()} donated)`
+          );
+        }
+
+      } else if (currentTier === 4) {
+        // Super User — max tier for MVP
         progressPercentage = 100;
       }
 
-      // Generate recommendations
       const recommendations = this.generateRecommendations(
-        currentScore,
-        breakdown,
+        currentTier,
+        isVerified,
+        hasDonated,
+        totalDonated,
         verification
       );
 
-      return {
-        currentScore,
-        currentTier,
+      const progress: ITrustProgress = {
+        currentScore: 0,
+        currentTier: currentTier as TrustTier,
         currentTierName: currentTierConfig.name,
-        nextTier: nextTierInfo?.tier || null,
-        nextTierName: nextTierInfo ? getTrustTierConfig(nextTierInfo.tier).name : null,
-        pointsToNextTier,
+        currentTierBadge: currentTierConfig.badge,
+        nextTier: nextTierConfig
+          ? (nextTierConfig.tier as TrustTier)
+          : null,
+        nextTierName: nextTierConfig ? nextTierConfig.name : null,
+        nextTierBadge: nextTierConfig ? nextTierConfig.badge : null,
+        pointsToNextTier: null,
         progressPercentage,
         capabilities: {
           maxAmount: currentTierConfig.maxAmount,
           requestsPerDay: currentTierConfig.requestsPerDay,
           cooldownHours: currentTierConfig.cooldownHours,
+          cooldownDays: currentTierConfig.cooldownDays,
         },
-        nextCapabilities,
-        breakdown,
+        nextCapabilities: nextTierConfig
+          ? {
+              maxAmount: nextTierConfig.maxAmount,
+              requestsPerDay: nextTierConfig.requestsPerDay,
+              cooldownHours: nextTierConfig.cooldownHours,
+              cooldownDays: nextTierConfig.cooldownDays,
+            }
+          : null,
+        breakdown: {
+          isVerified,
+          hasDonated,
+          totalDonated,
+          phoneVerified: verification?.phoneVerified || false,
+          documentVerified: verification?.documentVerified || false,
+          abuseFlags: stats?.abuseFlags || 0,
+        },
+        nextTierRequirements,
         recommendations,
+        isMaxTier: currentTier === 4,
       };
+
+      // Cache for 1 hour
+      await redisClient.getClient().setEx(
+        cacheKey,
+        this.CACHE_TTL,
+        JSON.stringify(progress)
+      );
+
+      logger.info('Trust progress cached', { userId, tier: currentTier });
+
+      return progress;
     } catch (error) {
       logger.error('Failed to get trust progress', { error, userId });
       throw error;
     }
   }
 
-  /**
-   * Get user's trust score and tier info
-   */
-  static async getUserTrustInfo(userId: string): Promise<ITrustScore> {
+  // ============================================
+  // INVALIDATE ALL TRUST CACHES FOR USER
+  // Call this when:
+  // → User completes KYC
+  // → User makes a donation
+  // → User is flagged/unflagged
+  // ============================================
+  static async invalidateTrustScoreCache(userId: string): Promise<void> {
     try {
-      const score = await this.calculateTrustScore(userId);
-      const tier = this.getTierFromScore(score);
-      const tierConfig = getTrustTierConfig(tier);
-
-      return {
-        score,
-        tier: tier as 1 | 2 | 3,
-        tierName: tierConfig.name,
-        maxAmount: tierConfig.maxAmount,
-        requestsPerDay: tierConfig.requestsPerDay,
-        cooldownHours: tierConfig.cooldownHours,
-      };
+      await Promise.all([
+        redisClient.getClient().del(`${this.CACHE_PREFIX}tier:${userId}`),
+        redisClient.getClient().del(`${this.CACHE_PREFIX}info:${userId}`),
+        redisClient.getClient().del(`${this.CACHE_PREFIX}progress:${userId}`),
+      ]);
+      logger.info('Trust score cache invalidated', { userId });
     } catch (error) {
-      logger.error('Failed to get user trust info', { error, userId });
-      // Return default (tier 1)
-      const defaultConfig = getTrustTierConfig(1);
-      return {
-        score: 0,
-        tier: 1,
-        tierName: defaultConfig.name,
-        maxAmount: defaultConfig.maxAmount,
-        requestsPerDay: defaultConfig.requestsPerDay,
-        cooldownHours: defaultConfig.cooldownHours,
-      };
+      logger.error('Failed to invalidate trust score cache', {
+        error,
+        userId,
+      });
     }
   }
 
-  /**
-   * Initialize trust for new user
-   */
+  // ============================================
+  // INITIALIZE USER TRUST
+  // Called when user registers
+  // ============================================
   static async initializeUserTrust(userId: string): Promise<void> {
     try {
-      // Create user stats
-      await prisma.userStats.create({
-        data: { userId },
-      });
-
-      // Create user trust
-      await prisma.userTrust.create({
-        data: {
-          userId,
-          trustTier: 1, // Start at tier 1
-        },
-      });
-
+      await Promise.all([
+        prisma.userStats.create({ data: { userId } }),
+        prisma.userTrust.create({ data: { userId, trustTier: 1 } }),
+      ]);
       logger.info('User trust initialized', { userId });
     } catch (error) {
       logger.error('Failed to initialize user trust', { error, userId });
     }
+  }
+
+  // ============================================
+  // CACHE TIER HELPER
+  // ============================================
+  private static async cacheTier(
+    cacheKey: string,
+    tier: number
+  ): Promise<void> {
+    try {
+      await redisClient
+        .getClient()
+        .setEx(cacheKey, this.CACHE_TTL, tier.toString());
+    } catch (error) {
+      logger.error('Failed to cache tier', { error });
+    }
+  }
+
+  // ============================================
+  // GENERATE RECOMMENDATIONS
+  // ============================================
+  private static generateRecommendations(
+    currentTier: number,
+    isVerified: boolean,
+    hasDonated: boolean,
+    totalDonated: number,
+    verification: any
+  ): string[] {
+    const recs: string[] = [];
+
+    if (!verification?.phoneVerified) {
+      recs.push('Verify your phone number');
+    }
+
+    if (!isVerified) {
+      recs.push(
+        'Complete KYC identity verification to unlock requests above ₦10,000'
+      );
+    }
+
+    if (isVerified && !hasDonated) {
+      recs.push(
+        'Make your first donation (any amount) to move to ✅ Verified User and request up to ₦50,000'
+      );
+    }
+
+    if (currentTier === 2 && totalDonated < 10000) {
+      const remaining = (10000 - totalDonated).toLocaleString();
+      recs.push(
+        `Donate ₦${remaining} more in total to reach ⭐ Trusted User and request up to ₦100,000`
+      );
+    }
+
+    if (currentTier === 3 && totalDonated < 50000) {
+      const remaining = (50000 - totalDonated).toLocaleString();
+      recs.push(
+        `Donate ₦${remaining} more in total to reach 👑 Super User and request up to ₦200,000`
+      );
+    }
+
+    if (currentTier === 4) {
+      recs.push(
+        '👑 You have reached the maximum tier! Keep donating and helping others!'
+      );
+    }
+
+    return recs;
   }
 }

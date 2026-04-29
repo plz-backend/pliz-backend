@@ -1,11 +1,8 @@
 import { Request, Response } from 'express';
-import { TrustScoreService } from '../../../../src/services/trust_score.service';
+import { TrustScoreService } from '../../../services/trust_score.service';
 import { IApiResponse } from '../../auth/types/user.interface';
 import logger from '../../../config/logger';
 
-/**
- * Helper to send response
- */
 const sendResponse = <T = any>(
   res: Response,
   statusCode: number,
@@ -27,38 +24,30 @@ export const getTrustProgress = async (
     const userId = (req as any).user?.userId;
 
     if (!userId) {
-      const response: IApiResponse = {
+      sendResponse(res, 401, {
         success: false,
         message: 'User not authenticated',
-      };
-      sendResponse(res, 401, response);
+      });
       return;
     }
 
-    logger.info('Get trust progress request', { userId });
-
     const progress = await TrustScoreService.getTrustProgress(userId);
 
-    logger.info('Trust progress retrieved', { userId, score: progress.currentScore });
+    logger.info('Trust progress retrieved', {
+      userId,
+      tier: progress.currentTier,
+    });
 
-    const response: IApiResponse = {
+    sendResponse(res, 200, {
       success: true,
       message: 'Trust progress retrieved successfully',
       data: { progress },
-    };
-
-    sendResponse(res, 200, response);
-  } catch (error: any) {
-    logger.error('Get trust progress error', {
-      error: error.message,
-      stack: error.stack,
     });
-
-    const response: IApiResponse = {
+  } catch (error: any) {
+    logger.error('Get trust progress error', { error: error.message });
+    sendResponse(res, 500, {
       success: false,
       message: 'Failed to retrieve trust progress',
-    };
-
-    sendResponse(res, 500, response);
+    });
   }
 };
