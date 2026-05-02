@@ -42,6 +42,28 @@ export class SupabaseStorageService {
     }
   }
 
+  static async getDisplayUrl(avatarUrl: string): Promise<string> {
+    const objectPath = this.extractObjectPath(avatarUrl);
+    if (!objectPath) return avatarUrl;
+
+    try {
+      const supabase = getSupabaseClient();
+      const { data, error } = await supabase.storage
+        .from(BUCKET)
+        .createSignedUrl(objectPath, 60 * 60 * 24 * 7);
+
+      if (error || !data?.signedUrl) {
+        logger.warn('Supabase signed URL warning', { error: error?.message });
+        return avatarUrl;
+      }
+
+      return data.signedUrl;
+    } catch (error: any) {
+      logger.warn('Supabase signed URL failed', { error: error.message });
+      return avatarUrl;
+    }
+  }
+
   // ============================================
   // DELETE IMAGE FROM SUPABASE
   // ============================================
@@ -71,5 +93,20 @@ export class SupabaseStorageService {
         userId,
       });
     }
+  }
+
+  private static extractObjectPath(url: string): string | null {
+    const publicMarker = `/object/public/${BUCKET}/`;
+    const signedMarker = `/object/sign/${BUCKET}/`;
+    const marker = url.includes(publicMarker)
+      ? publicMarker
+      : url.includes(signedMarker)
+        ? signedMarker
+        : null;
+
+    if (!marker) return null;
+
+    const [, pathWithQuery] = url.split(marker);
+    return decodeURIComponent((pathWithQuery || '').split('?')[0]);
   }
 }

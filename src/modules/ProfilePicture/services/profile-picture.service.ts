@@ -61,7 +61,7 @@ export class ProfilePictureService {
 
       logger.info('Profile picture uploaded', { userId });
 
-      return this.buildResponse({
+      return await this.buildResponse({
         userId,
         avatarType: 'photo',
         avatarUrl,
@@ -119,7 +119,7 @@ export class ProfilePictureService {
 
       logger.info('Profile picture removed', { userId });
 
-      return this.buildResponse({
+      return await this.buildResponse({
         userId,
         avatarType: 'initials',
         avatarUrl: null,
@@ -179,7 +179,7 @@ export class ProfilePictureService {
 
       logger.info('Initials avatar set', { userId, color });
 
-      return this.buildResponse({
+      return await this.buildResponse({
         userId,
         avatarType: 'initials',
         avatarUrl: null,
@@ -233,7 +233,7 @@ export class ProfilePictureService {
 
       logger.info('Library avatar set', { userId, avatarId });
 
-      return this.buildResponse({
+      return await this.buildResponse({
         userId,
         avatarType: 'library',
         avatarUrl: avatar.url,
@@ -268,7 +268,7 @@ export class ProfilePictureService {
 
       // No avatar record yet — return default initials
       if (!avatar) {
-        return this.buildResponse({
+        return await this.buildResponse({
           userId,
           avatarType: 'initials',
           avatarUrl: null,
@@ -279,7 +279,7 @@ export class ProfilePictureService {
         });
       }
 
-      return this.buildResponse({
+      return await this.buildResponse({
         userId,
         avatarType: avatar.avatarType as AvatarType,
         avatarUrl: avatar.avatarUrl,
@@ -309,7 +309,7 @@ export class ProfilePictureService {
   // BUILD RESPONSE
   // Always includes displayUrl
   // ============================================
-  private static buildResponse(data: {
+  private static async buildResponse(data: {
     userId: string;
     avatarType: AvatarType;
     avatarUrl: string | null;
@@ -317,11 +317,11 @@ export class ProfilePictureService {
     avatarLibraryId: string | null;
     firstName?: string | null;
     lastName?: string | null;
-  }): IProfilePictureResponse {
+  }): Promise<IProfilePictureResponse> {
     let displayUrl: string;
 
     if (data.avatarType === 'photo' && data.avatarUrl) {
-      displayUrl = data.avatarUrl;
+      displayUrl = await SupabaseStorageService.getDisplayUrl(data.avatarUrl);
     } else if (data.avatarType === 'library' && data.avatarUrl) {
       displayUrl = data.avatarUrl;
     } else {
