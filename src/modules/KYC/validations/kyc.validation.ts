@@ -1,11 +1,24 @@
 import { body } from 'express-validator';
 
+
+// ============================================
+// SEND OTP — channel is optional, defaults sms
+// ============================================
+export const sendOTPValidation = [
+  body('channel')
+    .optional()
+    .isIn(['sms', 'whatsapp'])
+    .withMessage('Channel must be sms or whatsapp'),
+];
+
 export const verifyOTPValidation = [
   body('otp')
     .notEmpty()
     .withMessage('OTP is required')
-    .matches(/^\d{6}$/)
-    .withMessage('OTP must be exactly 6 digits'),
+    .isLength({ min: 6, max: 6 })
+    .withMessage('OTP must be exactly 6 digits')
+    .isNumeric()
+    .withMessage('OTP must contain only numbers'),
 ];
 
 const kycBodyValidation = [
@@ -14,16 +27,6 @@ const kycBodyValidation = [
     .withMessage('Verification type is required')
     .isIn(['bvn', 'nin', 'passport'])
     .withMessage('Verification type must be bvn, nin, or passport'),
-
-  // ============================================
-  // BVN — number only, no scan needed
-  // ============================================
-  body('bvn')
-    .if(body('verificationType').equals('bvn'))
-    .notEmpty()
-    .withMessage('BVN is required')
-    .matches(/^\d{11}$/)
-    .withMessage('BVN must be exactly 11 digits'),
 
   // ============================================
   // NIN — number + scan
@@ -88,6 +91,39 @@ const kycBodyValidation = [
     .withMessage('Please scan your passport biodata page')       // ← scan
     .isURL()
     .withMessage('Passport biodata scan must be a valid URL'),
+];
+
+// ============================================
+// FACE LIVENESS
+// ============================================
+export const faceLivenessValidation = [
+  body('image')
+    .notEmpty()
+    .withMessage('Selfie image is required')
+    .isString()
+    .withMessage('Image must be a base64 string'),
+];
+
+// ============================================
+// ADMIN
+// ============================================
+export const manuallyVerifyValidation = [
+  body('note')
+    .optional()
+    .isString()
+    .withMessage('Note must be a string')
+    .isLength({ max: 500 })
+    .withMessage('Note cannot exceed 500 characters'),
+];
+
+export const manuallyRejectValidation = [
+  body('reason')
+    .notEmpty()
+    .withMessage('Rejection reason is required')
+    .isString()
+    .withMessage('Reason must be a string')
+    .isLength({ min: 10, max: 500 })
+    .withMessage('Reason must be between 10 and 500 characters'),
 ];
 
 export const submitKYCValidation = kycBodyValidation;

@@ -6,7 +6,7 @@ import { WithdrawalEmailService } from './withdrawal_email.service';
 import { withdrawalQueue, emailQueue } from '../../../config/queue-manager';
 
 const COMPANY_FEE_RATE = 0.05; // 5%
-const VAT_RATE = 0.075; // 7.5%
+const VAT_RATE =  0.075; // 7.5%
 
 // ============================================
 // HELPER

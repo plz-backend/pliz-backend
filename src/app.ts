@@ -22,6 +22,9 @@ import paymentMethodRoutes from './modules/Payment/router/payment_method.routes'
 import withdrawalRoutes from './modules/Withdrawal/router/withdrawal.routes';
 import storyRoutes from './modules/Story/routes/story.routes';
 import queueRoutes from './queue/route/queue.routes';
+import reactionRoutes from './modules/Reactions/routes/reaction.routes';
+import profilePictureRoutes from './modules/ProfilePicture/routes/profile-picture.routes';
+import locationRoutes from './modules/Location/routes/location.routes';
 
 export const createApp = (): Express => {
   const app = express();
@@ -81,6 +84,9 @@ export const createApp = (): Express => {
   app.use('/api/admin/queues', queueRoutes);
   app.use('/api/withdrawals', withdrawalRoutes);
   app.use('/api/stories', storyRoutes);
+  app.use('/api/reactions', reactionRoutes);
+  app.use('/api/profile-picture', profilePictureRoutes);
+  app.use('/api/location', locationRoutes);
 
   // ============================================
   // ROOT ENDPOINT

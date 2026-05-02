@@ -1,27 +1,32 @@
-export type VerificationType = 'bvn' | 'nin' | 'passport';
-export type VerificationStatus = 'pending' | 'under_review' | 'verified' | 'rejected';
-export type NINDocumentType = 'slip' | 'id_card';
+export type VerificationType = 'nin' | 'passport';
+export type NINDocumentType = 'slip' | 'card';
+export type KYCStatus =
+  | 'pending'
+  | 'document_uploaded'
+  | 'liveness_passed'
+  | 'under_review'
+  | 'verified'
+  | 'rejected';
 
-// ============================================
-// REQUEST INTERFACES
-// ============================================
-
-export interface ISubmitKYCRequest {
+export interface IUploadDocumentRequest {
   verificationType: VerificationType;
+  documentType: 'nin_front' | 'nin_back' | 'passport_biodata';
 
-  // BVN — number only, no upload
-  bvn?: string;
-
-  // NIN — number + document type + uploads
+  // NIN fields
   nin?: string;
-  ninDocumentType?: NINDocumentType;  // slip = front only | id_card = front + back
-  ninFrontUrl?: string;               // always required for NIN
-  ninBackUrl?: string;                // only required for id_card
+  ninDocumentType?: NINDocumentType;
+  ninMiddleName?: string;
+  ninStateOfOrigin?: string;
+  ninLGA?: string;
+  ninEnrollmentDate?: string;    // YYYY-MM-DD
 
-  // Passport — number + expiry + biodata page
+  // Passport fields — middle name first then number
+  passportMiddleName?: string;
   passportNumber?: string;
-  passportExpiry?: string;
-  passportBiodataUrl?: string;
+  passportPlaceOfBirth?: string;
+  passportIssueDate?: string;    // YYYY-MM-DD
+  passportExpiry?: string;       // YYYY-MM-DD
+  passportPlaceOfIssue?: string;
 }
 
 export interface IVerifyPhoneOTPRequest {
@@ -33,11 +38,15 @@ export interface IVerifyPhoneOTPRequest {
 // ============================================
 
 export interface IKYCResponse {
+  id: string;
   userId: string;
-  verificationType: VerificationType | null;
-  status: VerificationStatus;
+  verificationType: string | null;
+  status: KYCStatus;
   isVerified: boolean;
   phoneVerified: boolean;
+  documentVerified: boolean;
+  faceLivenessPassed: boolean;
+  faceLivenessScore: number | null;
   verifiedAt: Date | null;
   rejectionReason: string | null;
   attemptCount: number;
@@ -46,6 +55,7 @@ export interface IKYCResponse {
   createdAt: Date;
   updatedAt: Date;
 }
+
 
 export interface IKYCStatusResponse {
   verification: IKYCResponse | null;
@@ -82,5 +92,12 @@ export interface IDocumentVerificationResult {
   valid: boolean;
   extractedNumber?: string;
   extractedName?: string;
+  error?: string;
+}
+
+export interface IPremblyVerificationResult {
+  verified: boolean;
+  reference: string;
+  data?: any;
   error?: string;
 }
