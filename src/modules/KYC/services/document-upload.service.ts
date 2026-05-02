@@ -1,11 +1,6 @@
-import { createClient } from '@supabase/supabase-js';
 import sharp from 'sharp';
+import { getSupabaseClient } from '../../../config/supabase';
 import logger from '../../../config/logger';
-
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_KEY!
-);
 
 const BUCKET = process.env.SUPABASE_KYC_BUCKET || 'kyc-documents';
 
@@ -21,6 +16,7 @@ export class KYCDocumentUploadService {
     documentType: string
   ): Promise<string> {
     try {
+      const supabase = getSupabaseClient();
       const processedBuffer = await sharp(fileBuffer)
         .resize(1200, 1200, {
           fit: 'inside',
@@ -68,6 +64,7 @@ export class KYCDocumentUploadService {
   // ============================================
   static async deleteDocuments(userId: string): Promise<void> {
     try {
+      const supabase = getSupabaseClient();
       const { data: files } = await supabase.storage
         .from(BUCKET)
         .list(userId);

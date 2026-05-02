@@ -1,7 +1,7 @@
 import prisma from '../../../config/database';
 import { Prisma } from '@prisma/client';
 import logger from '../../../config/logger';
-import { PhoneVerificationService } from './phone-verification.service';
+import { PhoneVerificationService, type OTPChannel } from './phone-verification.service';
 import { DocumentVerificationService } from './document-verification.service';
 import { IdentityVerificationService } from './identity-verification.service';
 import { KYCDocumentUploadService } from './document-upload.service';
@@ -13,6 +13,13 @@ import {
 } from '../types/kyc.interface';
 
 const MAX_ATTEMPTS = 3;
+
+/** UI step — face is done once status has moved past document upload verification. */
+const FACE_LIVENESS_STEP_DONE_STATUSES = new Set<string>([
+  'liveness_passed',
+  'under_review',
+  'verified',
+]);
 
 export class KYCService {
 
@@ -61,7 +68,10 @@ export class KYCService {
       {
         step: 4,
         label: 'Face liveness check',
-        completed: verification?.faceLivenessPassed || false,
+        completed: Boolean(
+          verification?.status &&
+            FACE_LIVENESS_STEP_DONE_STATUSES.has(verification.status)
+        ),
         description: 'Take a selfie to confirm you are a real person',
       },
       {
@@ -90,11 +100,17 @@ export class KYCService {
   // PHONE VERIFICATION
   // Delegated to PhoneVerificationService
   // ============================================
-  static async sendPhoneOTP(userId: string): Promise<void> {
+  static async sendPhoneOTP(userId: string): Promise<{
+    channel: OTPChannel;
+    phoneNumber: string;
+  }> {
     return PhoneVerificationService.sendPhoneOTP(userId);
   }
 
-  static async resendPhoneOTP(userId: string): Promise<void> {
+  static async resendPhoneOTP(userId: string): Promise<{
+    channel: OTPChannel;
+    phoneNumber: string;
+  }> {
     return PhoneVerificationService.resendPhoneOTP(userId);
   }
 
@@ -269,7 +285,9 @@ export class KYCService {
   static async submitKYC(userId: string): Promise<IKYCResponse> {
     try {
       const [verification, user] = await Promise.all([
-        prisma.userVerification.findUnique({ where: { userId } }),
+        prisma.userVerification.findUnique({
+          where: { userId },
+        }),
         prisma.user.findUnique({
           where: { id: userId },
           include: {
@@ -289,7 +307,13 @@ export class KYCService {
       if (!verification) throw new Error('Please start KYC verification first.');
       if (!verification.phoneVerified) throw new Error('Please verify your phone number first.');
       if (!verification.documentVerified) throw new Error('Please upload your document first.');
-      if (!verification.faceLivenessPassed) {
+      if (verification.status !== 'liveness_passed') {
+        if (verification.status === 'under_review') {
+          throw new Error('Your verification is already under review.');
+        }
+        if (verification.isVerified || verification.status === 'verified') {
+          throw new Error('You are already verified.');
+        }
         throw new Error('Please complete the face liveness check first.');
       }
       if (verification.isVerified) throw new Error('You are already verified.');
@@ -399,7 +423,7 @@ export class KYCService {
         rejectionReason: null,
         rejectedAt: null,
         providerResponse: Prisma.JsonNull,   // ← fixed
-      },
+      } as Prisma.UserVerificationUncheckedUpdateInput,
     });
 
     // Delete old documents from Supabase

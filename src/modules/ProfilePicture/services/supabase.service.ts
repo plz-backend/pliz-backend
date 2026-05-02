@@ -1,10 +1,5 @@
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseClient } from '../../../config/supabase';
 import logger from '../../../config/logger';
-
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_KEY!
-);
 
 const BUCKET = process.env.SUPABASE_STORAGE_BUCKET || 'profile-pictures';
 
@@ -19,6 +14,7 @@ export class SupabaseStorageService {
     mimeType: string
   ): Promise<string> {
     try {
+      const supabase = getSupabaseClient();
       const fileName = `${userId}/avatar_${Date.now()}.jpg`;
 
       const { error } = await supabase.storage
@@ -51,6 +47,7 @@ export class SupabaseStorageService {
   // ============================================
   static async deleteImage(userId: string): Promise<void> {
     try {
+      const supabase = getSupabaseClient();
       const { data: files, error: listError } = await supabase.storage
         .from(BUCKET)
         .list(userId);
