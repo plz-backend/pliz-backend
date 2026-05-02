@@ -333,6 +333,30 @@ export class TrustScoreService {
   }
 
   // ============================================
+  // RECALCULATE TRUST SCORE
+  // Compatibility entrypoint used by donation + queue processors.
+  // Trust level is tier-based, so recalculation refreshes caches and
+  // persists the latest tier in user_trust.
+  // ============================================
+  static async calculateTrustScore(userId: string): Promise<ITrustScore> {
+    await this.invalidateTrustScoreCache(userId);
+    const trustInfo = await this.getUserTrustInfo(userId);
+
+    await prisma.userTrust.upsert({
+      where: { userId },
+      create: { userId, trustTier: trustInfo.tier },
+      update: { trustTier: trustInfo.tier },
+    });
+
+    logger.info('Trust score recalculated', {
+      userId,
+      tier: trustInfo.tier,
+    });
+
+    return trustInfo;
+  }
+
+  // ============================================
   // INITIALIZE USER TRUST
   // Called when user registers
   // ============================================

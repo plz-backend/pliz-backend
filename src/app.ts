@@ -25,6 +25,7 @@ import queueRoutes from './queue/route/queue.routes';
 import reactionRoutes from './modules/Reactions/routes/reaction.routes';
 import profilePictureRoutes from './modules/ProfilePicture/routes/profile-picture.routes';
 import locationRoutes from './modules/Location/routes/location.routes';
+import supportRoutes from './modules/Support/routes/support.routes';
 
 export const createApp = (): Express => {
   const app = express();
@@ -87,6 +88,7 @@ export const createApp = (): Express => {
   app.use('/api/reactions', reactionRoutes);
   app.use('/api/profile-picture', profilePictureRoutes);
   app.use('/api/location', locationRoutes);
+  app.use('/api/support', supportRoutes);
 
   // ============================================
   // ROOT ENDPOINT
@@ -107,6 +109,7 @@ export const createApp = (): Express => {
           notifications: '/api/notifications',
           withdrawals: '/api/withdrawals',
           stories: '/api/stories',
+          support: '/api/support',
           webhook: '/webhooks/paystack',
           queues: '/api/admin/queues/health',
         },

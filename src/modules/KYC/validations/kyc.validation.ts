@@ -42,8 +42,8 @@ const kycBodyValidation = [
     .if(body('verificationType').equals('nin'))
     .notEmpty()
     .withMessage('Please select your NIN document type')
-    .isIn(['slip', 'id_card'])
-    .withMessage('NIN document type must be slip or id_card'),
+    .isIn(['slip', 'card'])
+    .withMessage('NIN document type must be slip or card'),
 
   body('ninFrontUrl')
     .if(body('verificationType').equals('nin'))
@@ -55,7 +55,7 @@ const kycBodyValidation = [
   body('ninBackUrl')
     .if((req: any) =>
       req.body.verificationType === 'nin' &&
-      req.body.ninDocumentType === 'id_card'
+      req.body.ninDocumentType === 'card'
     )
     .notEmpty()
     .withMessage('Please scan the back of your NIN card')        // ← scan

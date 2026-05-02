@@ -3,7 +3,7 @@
  * Returns full URL to logo for use in email templates
  */
 export const getEmailLogoUrl = (logoType: 'main' | 'square' | 'icon' = 'main'): string => {
-  const baseUrl = process.env.API_URL || 'http://localhost:3000';
+  const baseUrl = process.env.BASE_URL;
   
   const logoMap = {
     main: 'pliz-logo.png',

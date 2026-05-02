@@ -14,8 +14,6 @@ import { updateKYC } from '../controllers/update-kyc.controller';
 import {
   sendOTPValidation,
   verifyOTPValidation,
-  submitKYCValidation,
-  updateKYCValidation,
   faceLivenessValidation,
 } from '../validations/kyc.validation';
 
@@ -44,10 +42,10 @@ router.post('/phone/verify-otp', authenticate, checkAccountStatus, verifyOTPVali
 router.get('/phone/status', authenticate, checkAccountStatus, getPhoneStatus);
 
 // POST /api/kyc/submit
-router.post('/submit', authenticate, checkAccountStatus, submitKYCValidation, validateRequest, submitKYC);
+router.post('/submit', authenticate, checkAccountStatus, submitKYC);
 
 // PUT  /api/kyc/update
-router.put('/update', authenticate, checkAccountStatus, updateKYCValidation, validateRequest, updateKYC);
+router.put('/update', authenticate, checkAccountStatus, updateKYC);
 
 
 // POST /api/kyc/document/upload
