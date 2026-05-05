@@ -197,6 +197,12 @@ export class BegService {
         throw new Error('Invalid or inactive category');
       }
 
+      const userProfile = await prisma.userProfile.findUnique({
+        where: { userId },
+        select: { isAnonymous: true },
+      });
+      const isAnonymous = Boolean(userProfile?.isAnonymous || data.isAnonymous);
+
       // ── TIER PROGRESSION CHECK ────────────────
       const tierCheck = await this.checkTierProgression(
         userId,
@@ -272,6 +278,7 @@ export class BegService {
           expiryHours,
           expiresAt,
           payoutRequested: false,
+          isAnonymous,
           approved: false,
           mediaType: data.mediaType || 'text',
           mediaUrl: data.mediaUrl || null,
@@ -330,6 +337,7 @@ export class BegService {
         rejectionReason: beg.rejectionReason,
         expiresAt: beg.expiresAt,
         payoutRequested: beg.payoutRequested,
+        isAnonymous: beg.isAnonymous,
         isWithdrawn: beg.isWithdrawn,
         withdrawnAt: beg.withdrawnAt,
         mediaType: beg.mediaType,
@@ -398,6 +406,7 @@ export class BegService {
         rejectionReason: updated.rejectionReason,
         expiresAt: updated.expiresAt,
         payoutRequested: updated.payoutRequested,
+        isAnonymous: updated.isAnonymous,
         isWithdrawn: updated.isWithdrawn,
         withdrawnAt: updated.withdrawnAt,
         mediaType: updated.mediaType,
@@ -642,6 +651,7 @@ export class BegService {
         rejectionReason: beg.rejectionReason,
         expiresAt: beg.expiresAt,
         payoutRequested: beg.payoutRequested,
+        isAnonymous: beg.isAnonymous,
         isWithdrawn: beg.isWithdrawn,
         withdrawnAt: beg.withdrawnAt,
         mediaType: beg.mediaType,
@@ -759,7 +769,7 @@ export class BegService {
           )
         : 0;
 
-    const isAnonymous = beg.user?.profile?.isAnonymous || false;
+    const isAnonymous = beg.isAnonymous || beg.user?.profile?.isAnonymous || false;
     const firstNameRaw = beg.user?.profile?.firstName?.trim();
     const lastNameRaw = beg.user?.profile?.lastName?.trim();
 

@@ -40,6 +40,7 @@ export interface IBeg {
   rejectionReason: string | null;
   expiresAt: Date;
   payoutRequested: boolean;
+  isAnonymous: boolean;
   isWithdrawn: boolean;
   withdrawnAt: Date | null;
   mediaType: string | null;
@@ -53,6 +54,7 @@ export interface ICreateBegRequest {
   description?: string | null;
   amountRequested: number;
   expiryHours?: ExpiryHours;
+  isAnonymous?: boolean;
   mediaType?: 'video' | 'audio' | 'text';
   mediaUrl?: string;
 }
@@ -174,6 +176,7 @@ export interface IBegWithRelations {
   rejectionReason: string | null;
   expiresAt: Date;
   payoutRequested: boolean;
+  isAnonymous: boolean;
   isWithdrawn: boolean;
   withdrawnAt: Date | null;
   mediaType: string | null;

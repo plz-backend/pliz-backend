@@ -4,7 +4,6 @@ import { TrustScoreService } from '../../../services/trust_score.service';
 import { DonorRankService } from './donor_rank.service';
 import { NotificationService } from '../../notifications/services/notification.service';
 import { PaymentMethodService } from '../../Payment/services/payment_method.service';
-import { trustScoreQueue } from '../../../config/queue-manager';    // ← added
 import logger from '../../../config/logger';
 
 // Pre-defined gratitude messages
@@ -169,54 +168,11 @@ export class DonationService {
         await DonorRankService.updateAfterDonation(donorId, donationAmount);
       }
 
-      // ============================================
-      // STEPS 10 & 11: Invalidate trust score caches
-      // Try queue first — fall back to direct if queue unavailable
-      // ============================================
-      try {
-        await trustScoreQueue.add(
-          'invalidate',
-          { userId: recipientId, action: 'invalidate' },
-          { jobId: `trust-invalidate-${recipientId}-${Date.now()}` }
-        );
-
-        if (donorId) {
-          await trustScoreQueue.add(
-            'invalidate',
-            { userId: donorId, action: 'invalidate' },
-            { jobId: `trust-invalidate-${donorId}-${Date.now()}` }
-          );
-        }
-
-        // ============================================
-        // STEP 12: Recalculate trust scores via queue
-        // ============================================
-        await trustScoreQueue.add(
-          'recalculate',
-          { userId: recipientId, action: 'recalculate' },
-          { jobId: `trust-recalc-${recipientId}-${Date.now()}` }
-        );
-
-        if (donorId) {
-          await trustScoreQueue.add(
-            'recalculate',
-            { userId: donorId, action: 'recalculate' },
-            { jobId: `trust-recalc-${donorId}-${Date.now()}` }
-          );
-        }
-
-        logger.info('Trust score jobs queued', { recipientId, donorId });
-      } catch (queueError: any) {
-        // Queue unavailable — fall back to direct processing
-        logger.warn('Trust score queue unavailable, processing directly', {
-          error: queueError.message,
-        });
-
-        await TrustScoreService.invalidateTrustScoreCache(recipientId);
-        if (donorId) await TrustScoreService.invalidateTrustScoreCache(donorId);
-        await TrustScoreService.calculateTrustScore(recipientId);
-        if (donorId) await TrustScoreService.calculateTrustScore(donorId);
-      }
+      // STEPS 10-12: Refresh trust score caches directly.
+      await TrustScoreService.invalidateTrustScoreCache(recipientId);
+      if (donorId) await TrustScoreService.invalidateTrustScoreCache(donorId);
+      await TrustScoreService.calculateTrustScore(recipientId);
+      if (donorId) await TrustScoreService.calculateTrustScore(donorId);
 
       // STEP 13: Invalidate donor rank cache
       if (donorId) await DonorRankService.invalidateCache(donorId);
@@ -618,17 +574,3 @@ export class DonationService {
     }
   }
 }
-// ```
-
-// **Only one thing changed** — Steps 10, 11 and 12 now use the queue:
-// ```
-// ❌ Before (direct):
-// await TrustScoreService.invalidateTrustScoreCache(recipientId)
-// await TrustScoreService.invalidateTrustScoreCache(donorId)
-// await TrustScoreService.calculateTrustScore(recipientId)
-// await TrustScoreService.calculateTrustScore(donorId)
-
-// ✅ After (queue with direct fallback):
-// trustScoreQueue.add('invalidate', ...) → trust-score.processor.ts handles it
-// trustScoreQueue.add('recalculate', ...) → trust-score.processor.ts handles it
-// ↓ if queue down → falls back to direct TrustScoreService calls

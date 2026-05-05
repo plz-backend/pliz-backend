@@ -1,6 +1,5 @@
 import { Request, Response, Router } from 'express';
 import crypto from 'crypto';
-import { donationQueue } from '../config/queue-manager';
 import { DonationService } from '../modules/Donor/services/donation.service';
 import logger from '../config/logger';
 
@@ -40,46 +39,14 @@ async function handleWebhook(req: Request, res: Response) {
           paymentMethod: data.channel,
         };
 
-        // ============================================
-        // TRY QUEUE FIRST (best for high traffic)
-        // Falls back to direct processing if queue fails
-        // ============================================
-        let queuedSuccessfully = false;
-
         try {
-          await donationQueue.add(
-            'process-donation',
-            donationData,
-            {
-              jobId: `donation-${reference}`,   // Prevents duplicate processing
-              priority: 1,                       // High priority
-            }
-          );
-
-          queuedSuccessfully = true;
-          logger.info('Webhook: donation added to queue', { reference });
-        } catch (queueError: any) {
-          // Queue failed (e.g. Redis is down) — fall back to direct processing
-          logger.warn('Queue unavailable, falling back to direct processing', {
+          await DonationService.processDonation(donationData);
+          logger.info('Webhook: donation processed', { reference });
+        } catch (directError: any) {
+          logger.error('Webhook: donation processing failed', {
             reference,
-            error: queueError.message,
+            error: directError.message,
           });
-        }
-
-        // ============================================
-        // FALLBACK: Direct processing if queue failed
-        // ============================================
-        if (!queuedSuccessfully) {
-          try {
-            await DonationService.processDonation(donationData);
-            logger.info('Webhook: donation processed directly (queue fallback)', { reference });
-          } catch (directError: any) {
-            logger.error('Webhook: direct processing also failed', {
-              reference,
-              error: directError.message,
-            });
-            // Still return 200 — Paystack will retry and queue may be back up
-          }
         }
       }
     }
@@ -95,17 +62,3 @@ async function handleWebhook(req: Request, res: Response) {
 const router = Router();
 router.post('/', handleWebhook);
 export default router;
-
-// ```
-
-// **How it works:**
-// ```
-// Webhook received
-//       ↓
-// Try Queue first (Redis available?)
-//       ↓
-// YES → Add to queue → Worker processes safely → ✅
-//       ↓
-// NO (Redis down) → Fall back to DonationService.processDonation() directly → ✅
-//       ↓
-// Both fail → Return 200 anyway → Paystack retries later when system recovers → ✅

@@ -159,13 +159,21 @@ export const initializeDonation = async (req: Request, res: Response): Promise<v
     // GET DONOR EMAIL
     // ============================================
     let donorEmail = 'guest@plz.app';
+    let profileAnonymousMode = false;
     if (donorId) {
       const donor = await prisma.user.findUnique({
         where: { id: donorId },
-        select: { email: true },
+        select: {
+          email: true,
+          profile: { select: { isAnonymous: true } },
+        },
       });
-      if (donor) donorEmail = donor.email;
+      if (donor) {
+        donorEmail = donor.email;
+        profileAnonymousMode = donor.profile?.isAnonymous ?? false;
+      }
     }
+    const effectiveIsAnonymous = Boolean(profileAnonymousMode || isAnonymous);
 
     // Generate unique reference
     const reference = `DON-${Date.now()}-${Math.random()
@@ -193,7 +201,7 @@ export const initializeDonation = async (req: Request, res: Response): Promise<v
         metadata: {
           beg_id: begId,
           donor_id: donorId,
-          is_anonymous: isAnonymous || false,
+          is_anonymous: effectiveIsAnonymous,
         },
       });
 
@@ -215,7 +223,7 @@ export const initializeDonation = async (req: Request, res: Response): Promise<v
           begId,
           donorId,
           amount: actualAmount,
-          isAnonymous: isAnonymous || false,
+          isAnonymous: effectiveIsAnonymous,
           paymentMethod: 'saved_card',
           paymentReference: reference,
           status: 'pending',
@@ -254,7 +262,7 @@ export const initializeDonation = async (req: Request, res: Response): Promise<v
       reference,
       begId,
       donorId,
-      isAnonymous: isAnonymous || false,
+      isAnonymous: effectiveIsAnonymous,
     });
 
     if (!payment.success) {
@@ -271,7 +279,7 @@ export const initializeDonation = async (req: Request, res: Response): Promise<v
         begId,
         donorId: donorId || null,
         amount: actualAmount,
-        isAnonymous: isAnonymous || false,
+        isAnonymous: effectiveIsAnonymous,
         paymentMethod,
         paymentReference: reference,
         status: 'pending',

@@ -6,7 +6,6 @@ import morgan from 'morgan';
 import path from 'path';
 import { IApiResponse } from './modules/auth/types/user.interface';
 import { errorLogger } from './logger/logger-middleware';
-import { getQueueHealth } from './config/queue-manager';
 
 // Routes
 import authRoutes from './modules/auth/routes/authRoutes';
@@ -21,7 +20,6 @@ import adminRoutes from './modules/admin/routes/admin.routes';
 import paymentMethodRoutes from './modules/Payment/router/payment_method.routes';
 import withdrawalRoutes from './modules/Withdrawal/router/withdrawal.routes';
 import storyRoutes from './modules/Story/routes/story.routes';
-import queueRoutes from './queue/route/queue.routes';
 import reactionRoutes from './modules/Reactions/routes/reaction.routes';
 import profilePictureRoutes from './modules/ProfilePicture/routes/profile-picture.routes';
 import locationRoutes from './modules/Location/routes/location.routes';
@@ -82,7 +80,6 @@ export const createApp = (): Express => {
   app.use('/api/notifications', notificationRoutes);
   app.use('/api/payment-methods', paymentMethodRoutes);
   app.use('/api/admin', adminRoutes);
-  app.use('/api/admin/queues', queueRoutes);
   app.use('/api/withdrawals', withdrawalRoutes);
   app.use('/api/stories', storyRoutes);
   app.use('/api/reactions', reactionRoutes);
@@ -111,7 +108,6 @@ export const createApp = (): Express => {
           stories: '/api/stories',
           support: '/api/support',
           webhook: '/webhooks/paystack',
-          queues: '/api/admin/queues/health',
         },
         features: [
           'User Registration & Login',
@@ -124,7 +120,6 @@ export const createApp = (): Express => {
           'Real-time Notifications (Socket.io)',
           'Donor Ranking System',
           'Gratitude Messaging',
-          'BullMQ Job Queues',
           'Community Stories',
         ],
       },
@@ -136,33 +131,17 @@ export const createApp = (): Express => {
   // HEALTH CHECK
   // ============================================
   app.get('/health', async (req: Request, res: Response) => {
-    try {
-      const queues = await getQueueHealth();
-      const hasFailures = queues.some(q => q.failed > 50);
+    const response: IApiResponse = {
+      success: true,
+      message: 'Server is healthy',
+      data: {
+        status: 'healthy',
+        uptime: process.uptime(),
+        timestamp: new Date().toISOString(),
+      },
+    };
 
-      const response: IApiResponse = {
-        success: true,
-        message: hasFailures ? 'Server degraded' : 'Server is healthy',
-        data: {
-          status: hasFailures ? 'degraded' : 'healthy',
-          uptime: process.uptime(),
-          timestamp: new Date().toISOString(),
-          queues,
-        },
-      };
-
-      res.status(hasFailures ? 503 : 200).json(response);
-    } catch (error: any) {
-      res.json({
-        success: true,
-        message: 'Server is healthy (queue health unavailable)',
-        data: {
-          status: 'healthy',
-          uptime: process.uptime(),
-          timestamp: new Date().toISOString(),
-        },
-      });
-    }
+    res.status(200).json(response);
   });
 
   // ============================================

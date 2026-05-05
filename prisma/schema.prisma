@@ -229,6 +229,7 @@ model Beg {
   expiryHours     Int       @default(24) @map("expiry_hours") // 24, 48, or 168 (7 days)
   expiresAt       DateTime  @map("expires_at") @db.Timestamp(6)
   payoutRequested Boolean   @default(false) @map("payout_requested")
+  isAnonymous     Boolean   @default(false) @map("is_anonymous")
   isWithdrawn     Boolean   @default(false) @map("is_withdrawn")
   withdrawnAt     DateTime? @map("withdrawn_at") @db.Timestamp(6)
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamp(6)

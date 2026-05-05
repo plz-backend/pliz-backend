@@ -10,6 +10,7 @@ import logger from './config/logger';
 import { createApp } from './app';
 import { GenericEmailService } from './services/email.service';
 import { LocationService } from './modules/Location/services/location.service';
+import { startBegMaintenanceCron } from './modules/Beg/beg_extend_notification/cron';
 
 
 
@@ -61,6 +62,12 @@ const startServer = async (): Promise<void> => {
       });
     }
 
+    if (process.env.SCHEDULER_ENABLED !== 'false') {
+      startBegMaintenanceCron();
+    } else {
+      logger.info('API scheduler disabled by SCHEDULER_ENABLED=false');
+    }
+
     const PORT = process.env.PORT || 3000;
 
     server.listen(PORT, () => {
@@ -90,7 +97,6 @@ const startServer = async (): Promise<void> => {
 🤖 AI Chat:       http://localhost:${PORT}/api/support/chat
 🖼️  Profile Pic:  http://localhost:${PORT}/api/profile-picture
 🪝 Webhook:       http://localhost:${PORT}/webhooks/paystack
-📊 Queue Health:  http://localhost:${PORT}/api/admin/queues/health
 📍 Location:      http://localhost:${PORT}/api/location
 
 Environment: ${process.env.NODE_ENV || 'development'}
@@ -98,7 +104,7 @@ Database:    PostgreSQL
 Cache:       Redis
 Email:       ${process.env.EMAIL_HOST || 'Not configured'}
 Payments:    Paystack
-Workers:     Running as separate service
+Scheduler:    node-cron in API process
       `);
 
       logger.info('API Server started successfully', { port: PORT });
@@ -121,7 +127,7 @@ Workers:     Running as separate service
 
 // ============================================
 // GRACEFUL SHUTDOWN
-// No workers here — they live in worker/worker.ts
+// Background queue workers were removed; scheduled maintenance runs via node-cron.
 // ============================================
 const gracefulShutdown = async (signal: string): Promise<void> => {
   logger.info(`${signal} received, shutting down API server gracefully`);
