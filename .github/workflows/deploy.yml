@@ -107,4 +107,22 @@ jobs:
             --set-secrets=JWT_SECRET=JWT_SECRET:latest
             --set-secrets=JWT_ACCESS_EXPIRATION=JWT_ACCESS_EXPIRATION:latest
             --set-secrets=JWT_REFRESH_EXPIRATION=JWT_REFRESH_EXPIRATION:latest
+            --set-secrets=PREMBLY_API_KEY=PREMBLY_API_KEY:latest
+            --set-secrets=PREMBLY_APP_ID=PREMBLY_APP_ID:latest
+            --set-secrets=SENDCHAMP_API_KEY=SENDCHAMP_API_KEY:latest
+            --set-secrets=SENDCHAMP_SMS_SENDER=SENDCHAMP_SMS_SENDER:latest
+            --set-secrets=SENDCHAMP_WHATSAPP_SENDER=SENDCHAMP_WHATSAPP_SENDER:latest
+            --set-secrets=OTP_CHANNEL=OTP_CHANNEL:latest
+            --set-secrets=TERMII_API_KEY=TERMII_API_KEY:latest
+            --set-secrets=YOUVERIFY_API_KEY=YOUVERIFY_API_KEY:latest
+            --set-secrets=SUPABASE_URL=SUPABASE_URL:latest
+            --set-secrets=SUPABASE_SERVICE_KEY=SUPABASE_SERVICE_KEY:latest
+            --set-secrets=SUPABASE_STORAGE_BUCKET=SUPABASE_STORAGE_BUCKET:latest
+            --set-secrets=SUPABASE_KYC_BUCKET=SUPABASE_KYC_BUCKET:latest
+            --set-secrets=ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest
+            --set-secrets=EMOJI_API_KEY=EMOJI_API_KEY:latest
+            --set-secrets=AWS_REGION=AWS_REGION:latest
+            --set-secrets=AWS_ACCESS_KEY_ID=AWS_ACCESS_KEY_ID:latest
+            --set-secrets=AWS_SECRET_ACCESS_KEY=AWS_SECRET_ACCESS_KEY:latest
+            --set-secrets=OTP_EXPIRY_MINUTES=OTP_EXPIRY_MINUTES:latest
             
