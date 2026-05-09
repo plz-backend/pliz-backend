@@ -66,7 +66,7 @@ export const createApp = (): Express => {
   }
 
   // Serve static assets
-  app.use('/assets', express.static(path.join(__dirname, '../public/assets')));
+  app.use('/assets', express.static(path.join(process.cwd(), 'public/assets')));
 
   // ============================================
   // API ROUTES

@@ -15,6 +15,7 @@ RUN npx prisma generate
 
 COPY tsconfig.json ./
 COPY src ./src
+COPY public ./public
 
 RUN npm run build
 RUN npm prune --omit=dev
@@ -35,6 +36,7 @@ WORKDIR /app
 COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/public ./public
 
 # Winston writes to logs/ — ensure non-root can write
 RUN mkdir -p /app/logs && chown -R node:node /app
@@ -43,4 +45,4 @@ USER node
 
 EXPOSE 8080
 
-CMD ["node", "dist/server.js"]
+CMD ["node", "dist/src/server.js"]
