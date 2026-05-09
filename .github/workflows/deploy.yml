@@ -87,3 +87,4 @@ jobs:
             --set-secrets=JWT_SECRET=JWT_SECRET:latest
             --set-secrets=JWT_ACCESS_EXPIRATION=JWT_ACCESS_EXPIRATION:latest
             --set-secrets=JWT_REFRESH_EXPIRATION=JWT_REFRESH_EXPIRATION:latest
+            
