@@ -24,18 +24,32 @@ jobs:
       SERVICE_NAME: ${{ vars.CLOUD_RUN_SERVICE }}
       IMAGE_NAME: pliz-backend
       RUNTIME_SERVICE_ACCOUNT: ${{ vars.RUNTIME_SERVICE_ACCOUNT }}
+      DEPLOYER_SERVICE_ACCOUNT: ${{ secrets.DEPLOYER_SERVICE_ACCOUNT }}
+      WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Print deployment context
+        run: |
+          echo "github.repository=${{ github.repository }}"
+          echo "github.ref_name=${{ github.ref_name }}"
+          echo "PROJECT_ID=$PROJECT_ID"
+          echo "REGION=$REGION"
+          echo "GAR_REPOSITORY=$GAR_REPOSITORY"
+          echo "SERVICE_NAME=$SERVICE_NAME"
+          echo "RUNTIME_SERVICE_ACCOUNT=$RUNTIME_SERVICE_ACCOUNT"
+          echo "DEPLOYER_SERVICE_ACCOUNT=$DEPLOYER_SERVICE_ACCOUNT"
+          echo "WORKLOAD_IDENTITY_PROVIDER=$WORKLOAD_IDENTITY_PROVIDER"
 
       - name: Authenticate to Google Cloud
         id: auth
         uses: google-github-actions/auth@v2
         with:
           token_format: access_token
-          workload_identity_provider: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.DEPLOYER_SERVICE_ACCOUNT }}
+          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.DEPLOYER_SERVICE_ACCOUNT }}
 
       - name: Setup gcloud
         uses: google-github-actions/setup-gcloud@v3
