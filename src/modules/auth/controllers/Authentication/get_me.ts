@@ -7,6 +7,32 @@ import {
 } from '../../types/user.interface';
 import logger from '../../../../config/logger';
 
+function initialsFromProfile(
+  profile: { firstName?: string | null; lastName?: string | null } | null | undefined
+): string {
+  const first = profile?.firstName?.charAt(0).toUpperCase() || 'P';
+  const last = profile?.lastName?.charAt(0).toUpperCase() || 'L';
+  return `${first}${last}`;
+}
+
+function buildAvatarDisplayUrl(
+  avatar: {
+    avatarType: string;
+    avatarUrl: string | null;
+    avatarColor: string | null;
+    avatarLibraryId: string | null;
+  } | null,
+  profile: { firstName?: string | null; lastName?: string | null } | null | undefined
+): string {
+  if ((avatar?.avatarType === 'photo' || avatar?.avatarType === 'library') && avatar.avatarUrl) {
+    return avatar.avatarUrl;
+  }
+
+  const initials = initialsFromProfile(profile);
+  const color = (avatar?.avatarColor || '#FF5733').replace('#', '');
+  return `https://api.dicebear.com/7.x/initials/svg?seed=${initials}&backgroundColor=${color}&fontSize=40`;
+}
+
 /**
  * Helper to send response
  */
@@ -49,6 +75,19 @@ export const getMe = async (
       include: {
         profile: true,
         stats: true,
+        verification: {
+          select: {
+            verificationType: true,
+            status: true,
+            isVerified: true,
+            phoneVerified: true,
+            documentVerified: true,
+            verifiedAt: true,
+            rejectionReason: true,
+            attemptCount: true,
+            updatedAt: true,
+          },
+        },
       },
     });
 
@@ -109,6 +148,15 @@ export const getMe = async (
           peopleHelpedThisWeek,
         };
 
+    const legacyAvatar = user.avatar
+      ? {
+          avatarType: 'photo',
+          avatarUrl: user.avatar,
+          avatarColor: null,
+          avatarLibraryId: null,
+        }
+      : null;
+
     // Prepare complete user response (excluding password)
     const userResponse: IUserResponse = {
       id: user.id,
@@ -124,6 +172,29 @@ export const getMe = async (
       updatedAt: user.updatedAt,
       profile: user.profile || null,  // Include profile data
       stats: statsSummary, // Include stats data
+      verification: user.verification
+        ? {
+            verificationType: user.verification.verificationType,
+            status: user.verification.status,
+            isVerified: user.verification.isVerified,
+            phoneVerified: user.verification.phoneVerified,
+            documentVerified: user.verification.documentVerified,
+            faceLivenessPassed: ['liveness_passed', 'under_review', 'verified'].includes(
+              user.verification.status
+            ),
+            verifiedAt: user.verification.verifiedAt,
+            rejectionReason: user.verification.rejectionReason,
+            attemptCount: user.verification.attemptCount,
+            updatedAt: user.verification.updatedAt,
+          }
+        : null,
+      avatar: {
+        avatarType: legacyAvatar?.avatarType || 'initials',
+        avatarUrl: legacyAvatar?.avatarUrl || null,
+        avatarColor: legacyAvatar?.avatarColor || '#FF5733',
+        avatarLibraryId: legacyAvatar?.avatarLibraryId || null,
+        displayUrl: buildAvatarDisplayUrl(legacyAvatar, user.profile),
+      },
     };
 
     logger.info('Current user retrieved successfully', { userId: user.id });

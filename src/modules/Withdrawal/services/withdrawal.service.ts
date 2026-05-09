@@ -3,10 +3,9 @@ import axios from 'axios';
 import { Decimal } from '@prisma/client/runtime/library';
 import logger from '../../../config/logger';
 import { WithdrawalEmailService } from './withdrawal_email.service';
-import { withdrawalQueue, emailQueue } from '../../../config/queue-manager';
 
 const COMPANY_FEE_RATE = 0.05; // 5%
-const VAT_RATE = 0.075; // 7.5%
+const VAT_RATE =  0.075; // 7.5%
 
 // ============================================
 // HELPER
@@ -170,7 +169,7 @@ export class WithdrawalService {
   }
 
   /**
-   * Request withdrawal (queue first, direct fallback)
+   * Request withdrawal and process it immediately.
    */
   static async requestWithdrawal(
     userId: string,
@@ -252,94 +251,43 @@ export class WithdrawalService {
         amountToReceive: fees.amountToReceive,
       });
 
-      // ============================================
-      // TRY QUEUE FIRST (best for high traffic)
-      // Falls back to direct processing if queue fails
-      // ============================================
-      let queuedSuccessfully = false;
-
       try {
-        await withdrawalQueue.add(
-          'process-withdrawal',
-          {
-            withdrawalId: withdrawal.id,
-            autoProcessed: true,
-          },
-          {
-            jobId: `withdrawal-${withdrawal.id}`,  // Prevents duplicate processing
-            priority: 1,
-          }
-        );
-
-        queuedSuccessfully = true;
-        logger.info('Withdrawal added to queue', { withdrawalId: withdrawal.id });
-      } catch (queueError: any) {
-        // Queue failed (e.g. Redis is down) — fall back to direct processing
-        logger.warn('Queue unavailable, falling back to direct processing', {
+        await this.processWithdrawal(withdrawal.id, true);
+        logger.info('Withdrawal processed directly', {
           withdrawalId: withdrawal.id,
-          error: queueError.message,
         });
-      }
 
-      // ============================================
-      // FALLBACK: Direct processing if queue failed
-      // ============================================
-      if (!queuedSuccessfully) {
-        try {
-          await this.processWithdrawal(withdrawal.id, true);
-          logger.info('Withdrawal processed directly (queue fallback)', {
-            withdrawalId: withdrawal.id,
-          });
-
-          return await prisma.withdrawal.findUnique({
-            where: { id: withdrawal.id },
-            include: {
-              bankAccount: true,
-              beg: {
-                select: {
-                  description: true,
-                  category: { select: { name: true, icon: true } },
-                },
+        return await prisma.withdrawal.findUnique({
+          where: { id: withdrawal.id },
+          include: {
+            bankAccount: true,
+            beg: {
+              select: {
+                description: true,
+                category: { select: { name: true, icon: true } },
               },
             },
-          });
-        } catch (directError: any) {
-          logger.warn('Direct processing failed, withdrawal stays pending', {
-            withdrawalId: withdrawal.id,
-            error: directError.message,
-          });
+          },
+        });
+      } catch (directError: any) {
+        logger.warn('Direct withdrawal processing failed', {
+          withdrawalId: withdrawal.id,
+          error: directError.message,
+        });
 
-          // Send pending email since processing failed
-          const recipientName = beg.user.profile?.displayName || beg.user.username;
-          const begTitle = buildBegTitle(beg.category, beg.description);
-
-          // ✅ Queue email or send directly
-          try {
-            await emailQueue.add('send-email', {
-              type: 'withdrawal_pending',
-              to: beg.user.email,
-              data: {
-                recipientName,
-                amount: Number(withdrawal.amountToReceive),
-                begTitle,
-                bankName: bankAccount.bankName,
-                accountNumber: bankAccount.accountNumber,
+        return await prisma.withdrawal.findUnique({
+          where: { id: withdrawal.id },
+          include: {
+            bankAccount: true,
+            beg: {
+              select: {
+                description: true,
+                category: { select: { name: true, icon: true } },
               },
-            });
-          } catch {
-            // Email queue also down — send directly
-            await WithdrawalEmailService.sendPendingEmail(beg.user.email, {
-              recipientName,
-              amount: Number(withdrawal.amountToReceive),
-              begTitle,
-              bankName: bankAccount.bankName,
-              accountNumber: bankAccount.accountNumber,
-            });
-          }
-        }
+            },
+          },
+        });
       }
-
-      return withdrawal;
     } catch (error: any) {
       logger.error('Withdrawal request failed', { error: error.message, userId, begId });
       throw error;
@@ -348,7 +296,7 @@ export class WithdrawalService {
 
   /**
    * Process withdrawal (manual or automatic)
-   * Called by queue worker OR directly as fallback
+   * Called by automatic and manual withdrawal flows.
    */
   static async processWithdrawal(
     withdrawalId: string,
@@ -433,32 +381,15 @@ export class WithdrawalService {
           data: { status: 'failed', failureReason },
         });
 
-        // ✅ Queue failure email or send directly
-        try {
-          await emailQueue.add('send-email', {
-            type: 'withdrawal_failed',
-            to: withdrawal.user.email,
-            data: {
-              recipientName,
-              amount: Number(withdrawal.amountToReceive),
-              bankName: withdrawal.bankAccount.bankName,
-              accountNumber: withdrawal.bankAccount.accountNumber,
-              failureReason,
-              begTitle,
-              supportEmail: process.env.SUPPORT_EMAIL || 'support@plz.app',
-            },
-          });
-        } catch {
-          await WithdrawalEmailService.sendFailureEmail(withdrawal.user.email, {
-            recipientName,
-            amount: Number(withdrawal.amountToReceive),
-            bankName: withdrawal.bankAccount.bankName,
-            accountNumber: withdrawal.bankAccount.accountNumber,
-            failureReason,
-            begTitle,
-            supportEmail: process.env.SUPPORT_EMAIL || 'support@plz.app',
-          });
-        }
+        await WithdrawalEmailService.sendFailureEmail(withdrawal.user.email, {
+          recipientName,
+          amount: Number(withdrawal.amountToReceive),
+          bankName: withdrawal.bankAccount.bankName,
+          accountNumber: withdrawal.bankAccount.accountNumber,
+          failureReason,
+          begTitle,
+          supportEmail: process.env.SUPPORT_EMAIL || 'support@plz.app',
+        });
 
         throw new Error(failureReason);
       }
@@ -491,32 +422,15 @@ export class WithdrawalService {
           data: { status: 'failed', failureReason },
         });
 
-        // ✅ Queue failure email or send directly
-        try {
-          await emailQueue.add('send-email', {
-            type: 'withdrawal_failed',
-            to: withdrawal.user.email,
-            data: {
-              recipientName,
-              amount: Number(withdrawal.amountToReceive),
-              bankName: withdrawal.bankAccount.bankName,
-              accountNumber: withdrawal.bankAccount.accountNumber,
-              failureReason,
-              begTitle,
-              supportEmail: process.env.SUPPORT_EMAIL || 'support@plz.app',
-            },
-          });
-        } catch {
-          await WithdrawalEmailService.sendFailureEmail(withdrawal.user.email, {
-            recipientName,
-            amount: Number(withdrawal.amountToReceive),
-            bankName: withdrawal.bankAccount.bankName,
-            accountNumber: withdrawal.bankAccount.accountNumber,
-            failureReason,
-            begTitle,
-            supportEmail: process.env.SUPPORT_EMAIL || 'support@plz.app',
-          });
-        }
+        await WithdrawalEmailService.sendFailureEmail(withdrawal.user.email, {
+          recipientName,
+          amount: Number(withdrawal.amountToReceive),
+          bankName: withdrawal.bankAccount.bankName,
+          accountNumber: withdrawal.bankAccount.accountNumber,
+          failureReason,
+          begTitle,
+          supportEmail: process.env.SUPPORT_EMAIL || 'support@plz.app',
+        });
 
         throw new Error(failureReason);
       }
@@ -538,43 +452,20 @@ export class WithdrawalService {
         data: { isWithdrawn: true, withdrawnAt: new Date() },
       });
 
-      // ✅ Queue success email or send directly
-      try {
-        await emailQueue.add('send-email', {
-          type: 'withdrawal_success',
-          to: withdrawal.user.email,
-          data: {
-            recipientName,
-            amount: Number(withdrawal.amountRequested),
-            companyFee: Number(withdrawal.companyFee),
-            vatFee: Number(withdrawal.vatFee),
-            totalFees: Number(withdrawal.totalFees),
-            amountToReceive: Number(withdrawal.amountToReceive),
-            bankName: withdrawal.bankAccount.bankName,
-            accountNumber: withdrawal.bankAccount.accountNumber,
-            accountName: withdrawal.bankAccount.accountName,
-            transferReference: reference,
-            begTitle,
-            processedAt: new Date(),
-          },
-        });
-      } catch {
-        // Email queue down — send directly
-        await WithdrawalEmailService.sendSuccessEmail(withdrawal.user.email, {
-          recipientName,
-          amount: Number(withdrawal.amountRequested),
-          companyFee: Number(withdrawal.companyFee),
-          vatFee: Number(withdrawal.vatFee),
-          totalFees: Number(withdrawal.totalFees),
-          amountToReceive: Number(withdrawal.amountToReceive),
-          bankName: withdrawal.bankAccount.bankName,
-          accountNumber: withdrawal.bankAccount.accountNumber,
-          accountName: withdrawal.bankAccount.accountName,
-          transferReference: reference,
-          begTitle,
-          processedAt: new Date(),
-        });
-      }
+      await WithdrawalEmailService.sendSuccessEmail(withdrawal.user.email, {
+        recipientName,
+        amount: Number(withdrawal.amountRequested),
+        companyFee: Number(withdrawal.companyFee),
+        vatFee: Number(withdrawal.vatFee),
+        totalFees: Number(withdrawal.totalFees),
+        amountToReceive: Number(withdrawal.amountToReceive),
+        bankName: withdrawal.bankAccount.bankName,
+        accountNumber: withdrawal.bankAccount.accountNumber,
+        accountName: withdrawal.bankAccount.accountName,
+        transferReference: reference,
+        begTitle,
+        processedAt: new Date(),
+      });
 
       logger.info('Withdrawal processed successfully', {
         withdrawalId,
@@ -673,15 +564,3 @@ export class WithdrawalService {
     }
   }
 }
-// ```
-
-// **Key changes:**
-// 1. Added `withdrawalQueue` and `emailQueue` imports
-// 2. `requestWithdrawal` — tries queue first, falls back to direct `processWithdrawal` if Redis is down
-// 3. `processWithdrawal` — every email now tries `emailQueue` first, falls back to `WithdrawalEmailService` directly if email queue is down
-// 4. `jobId: withdrawal-${withdrawal.id}` — prevents duplicate processing
-// 5. `processWithdrawal` is still fully intact and called by both the queue worker AND directly as fallback
-
-// **The pattern everywhere is:**
-// ```
-// Try queue → fails → fall back to direct → ✅ always works

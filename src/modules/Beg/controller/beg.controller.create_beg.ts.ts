@@ -24,7 +24,7 @@ export const createBeg = async (
 ): Promise<void> => {
   try {
     const userId = (req as any).user?.userId;
-    const { category, description, amountRequested, mediaType, mediaUrl } = req.body; // ← title removed
+    const { category, description, amountRequested, isAnonymous, mediaType, mediaUrl } = req.body; // ← title removed
 
     logger.info('Create beg request', {
       userId,
@@ -74,6 +74,7 @@ export const createBeg = async (
       categoryId,
       description: description ? description.trim() : null, // max 40 words / 300 chars
       amountRequested,
+      isAnonymous: Boolean(isAnonymous),
       mediaType,
       mediaUrl,
     };
@@ -100,6 +101,7 @@ export const createBeg = async (
           amountRaised: beg.amountRaised,
           status: beg.status,
           approved: beg.approved,
+          isAnonymous: beg.isAnonymous,
           mediaType: beg.mediaType,
           mediaUrl: beg.mediaUrl,
           expiresAt: beg.expiresAt,

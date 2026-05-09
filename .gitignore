@@ -52,6 +52,7 @@ npm-debug.log*
 # Env files
 .env
 .env.*
+!.env.example
 
 # Build
 dist/
@@ -70,4 +71,3 @@ prisma/migrations
 # Misc
 coverage/
 .tmp/
-

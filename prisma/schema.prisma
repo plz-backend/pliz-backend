@@ -51,9 +51,6 @@ model User {
   appleId      String?  @unique @map("apple_id") @db.VarChar(255)
   authProvider String   @default("email") @map("auth_provider") @db.VarChar(20) // email, google, apple
   avatar       String?  @db.Text
-
-  
-
   
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
   updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamp(6)
@@ -76,6 +73,15 @@ model User {
   bankAccounts      BankAccount[]
   withdrawals       Withdrawal[]
   stories           Story[]
+  reactions         Reaction[]
+  // Support Relation
+  supportTickets   SupportTicket[]  @relation("UserTickets")
+  assignedTickets  SupportTicket[]  @relation("AssignedTickets")
+  supportMessages  SupportMessage[] @relation("SentSupportMessages")
+  supportChats     SupportChat[]
+
+  // User avatar
+  profileAvatar    UserAvatar? 
   
   // ADMIN ACTIONS
   adminActions      AdminAction[] @relation("AdminActions")
@@ -110,7 +116,7 @@ model UserProfile {
   agreeToTerms Boolean  @default(false) @map("agree_to_terms")
   isAnonymous  Boolean  @default(false) @map("is_anonymous")
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamp(6)
-  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)  
 
   // Relations
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -118,6 +124,44 @@ model UserProfile {
   @@index([phoneNumber])
   @@map("user_profiles")
 }
+
+
+model UserAvatar {
+  userId          String    @id @map("user_id") @db.Uuid
+
+  // ============================================
+  // AVATAR TYPE
+  // Values: photo | initials | library
+  // ============================================
+  avatarType      String    @default("initials") @map("avatar_type") @db.VarChar(20)
+
+  // ============================================
+  // PHOTO UPLOAD
+  // Set when avatarType = photo
+  // ============================================
+  avatarUrl       String?   @map("avatar_url") @db.Text
+
+  // ============================================
+  // INITIALS AVATAR
+  // Set when avatarType = initials
+  // ============================================
+  avatarColor     String?   @default("#FF5733") @map("avatar_color") @db.VarChar(7)
+
+  // ============================================
+  // LIBRARY AVATAR
+  // Set when avatarType = library
+  // ============================================
+  avatarLibraryId String?   @map("avatar_library_id") @db.VarChar(50)
+
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_avatars")
+}
+
+// Session
 
 model Session {
   id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
@@ -185,6 +229,7 @@ model Beg {
   expiryHours     Int       @default(24) @map("expiry_hours") // 24, 48, or 168 (7 days)
   expiresAt       DateTime  @map("expires_at") @db.Timestamp(6)
   payoutRequested Boolean   @default(false) @map("payout_requested")
+  isAnonymous     Boolean   @default(false) @map("is_anonymous")
   isWithdrawn     Boolean   @default(false) @map("is_withdrawn")
   withdrawnAt     DateTime? @map("withdrawn_at") @db.Timestamp(6)
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
@@ -200,6 +245,7 @@ model Beg {
   donations   Donation[]
   withdrawals Withdrawal[]
   reports     Report[]
+  reactions  Reaction[]   
 
   @@index([userId])
   @@index([categoryId])
@@ -231,6 +277,7 @@ model Donation {
   beg              Beg               @relation(fields: [begId], references: [id], onDelete: Cascade)
   donor            User?             @relation(fields: [donorId], references: [id], onDelete: SetNull)
   gratitudeMessage GratitudeMessage?
+  reactions        Reaction[]  
 
   
   @@index([begId])
@@ -363,94 +410,108 @@ model UserVerification {
   userId              String    @id @map("user_id") @db.Uuid
 
   // ============================================
-  // VERIFICATION METHOD (user picks one)
-  // Values: 'bvn' | 'nin' | 'passport'
+  // VERIFICATION TYPE — nin | passport
   // ============================================
-  verificationType    String?   @map("verification_type") @db.VarChar(20)
+  verificationType     String?   @map("verification_type") @db.VarChar(20)
 
   // ============================================
-  // BVN — number only, no document upload
+  // NIN FIELDS
+  // ninDocumentType: slip | card
+  // slip = front only
+  // card = front + back
   // ============================================
-  bvn                 String?   @map("bvn") @db.VarChar(11)
-  bvnVerified         Boolean   @default(false) @map("bvn_verified")
-  bvnVerifiedAt       DateTime? @map("bvn_verified_at") @db.Timestamp(6)
+  nin                  String?   @map("nin") @db.VarChar(11)
+  ninDocumentType      String?   @map("nin_document_type") @db.VarChar(10)
+  ninMiddleName        String?   @map("nin_middle_name") @db.VarChar(100)
+  ninStateOfOrigin     String?   @map("nin_state_of_origin") @db.VarChar(100)
+  ninLGA               String?   @map("nin_lga") @db.VarChar(100)
+  ninEnrollmentDate    DateTime? @map("nin_enrollment_date") @db.Timestamp(6)
+  ninFrontUrl          String?   @map("nin_front_url") @db.Text
+  ninBackUrl           String?   @map("nin_back_url") @db.Text
+  ninVerified          Boolean   @default(false) @map("nin_verified")
+  ninVerifiedAt        DateTime? @map("nin_verified_at") @db.Timestamp(6)
+
 
   // ============================================
-  // NIN — number + document upload
-  // ninDocumentType: 'slip' | 'id_card'
-  // slip    → front only
-  // id_card → front + back
+  // PASSPORT FIELDS
   // ============================================
-  nin                 String?   @map("nin") @db.VarChar(11)
-  ninDocumentType     String?   @map("nin_document_type") @db.VarChar(10)
-  ninFrontUrl         String?   @map("nin_front_url") @db.Text
-  ninBackUrl          String?   @map("nin_back_url") @db.Text        // only for id_card
-  ninVerified         Boolean   @default(false) @map("nin_verified")
-  ninVerifiedAt       DateTime? @map("nin_verified_at") @db.Timestamp(6)
-
-  // ============================================
-  // INTERNATIONAL PASSPORT
-  // biodata page upload only
-  // ============================================
-  passportNumber      String?   @map("passport_number") @db.VarChar(20)
-  passportExpiry      DateTime? @map("passport_expiry") @db.Date
-  passportBiodataUrl  String?   @map("passport_biodata_url") @db.Text
-  passportVerified    Boolean   @default(false) @map("passport_verified")
-  passportVerifiedAt  DateTime? @map("passport_verified_at") @db.Timestamp(6)
+  passportNumber       String?   @map("passport_number") @db.VarChar(20)
+  passportMiddleName   String?   @map("passport_middle_name") @db.VarChar(100)
+  passportPlaceOfBirth String?   @map("passport_place_of_birth") @db.VarChar(100)
+  passportIssueDate    DateTime? @map("passport_issue_date") @db.Timestamp(6)
+  passportExpiry       DateTime? @map("passport_expiry") @db.Timestamp(6)
+  passportPlaceOfIssue String?   @map("passport_place_of_issue") @db.VarChar(100)
+  passportBiodataUrl   String?   @map("passport_biodata_url") @db.Text
+  passportVerified     Boolean   @default(false) @map("passport_verified")
+  passportVerifiedAt   DateTime? @map("passport_verified_at") @db.Timestamp(6)
 
   // ============================================
   // PHONE VERIFICATION (OTP)
   // Phone number comes from UserProfile
   // Verified here via OTP before identity check
   // ============================================
-  phoneVerified       Boolean   @default(false) @map("phone_verified")
-  phoneVerifiedAt     DateTime? @map("phone_verified_at") @db.Timestamp(6)
-  phoneOtp            String?   @map("phone_otp") @db.VarChar(6)
-  phoneOtpExpiresAt   DateTime? @map("phone_otp_expires_at") @db.Timestamp(6)
+  phoneVerified            Boolean   @default(false) @map("phone_verified")
+  phoneVerifiedAt          DateTime? @map("phone_verified_at") @db.Timestamp(6)
+  phoneOtp                 String?   @map("phone_otp") @db.VarChar(255)
+  // ↑ stores SendChamp reference (not the OTP itself)
+  phoneOtpSentAt           DateTime? @map("phone_otp_sent_at") @db.Timestamp(6)
+  // ↑ stores when OTP was sent — used for cooldown + expiry
+  phoneVerificationChannel String?   @map("phone_verification_channel") @db.VarChar(20)
+  // ↑ sms | whatsapp
 
   // ============================================
-  // DOCUMENT STATUS
+  // FACE LIVENESS
   // ============================================
-  documentVerified    Boolean   @default(false) @map("document_verified")
+  faceLivenessUrl      String?   @map("face_liveness_url") @db.Text
+  faceLivenessPassed   Boolean   @default(false) @map("face_liveness_passed")
+  faceLivenessPassedAt DateTime? @map("face_liveness_passed_at") @db.Timestamp(6)
+  faceLivenessScore    Float?    @map("face_liveness_score")
 
   // ============================================
-  // OVERALL VERIFICATION STATUS
-  // Values: pending | under_review | verified | rejected | expired
+  // DOCUMENT AUTHENTICITY
   // ============================================
-  status              String    @default("pending") @map("status") @db.VarChar(20)
-  isVerified          Boolean   @default(false) @map("is_verified")     // master flag
-  verifiedAt          DateTime? @map("verified_at") @db.Timestamp(6)
+  documentVerified     Boolean   @default(false) @map("document_verified")
+  documentVerifiedAt   DateTime? @map("document_verified_at") @db.Timestamp(6)
+
 
   // ============================================
-  // PROVIDER (automated verification)
-  // Values: 'paystack' | 'youverify'
+  // OVERALL STATUS
+  // pending | document_uploaded | liveness_passed
+  // under_review | verified | rejected
   // ============================================
-  verificationProvider  String?  @map("verification_provider") @db.VarChar(100)
-  providerReference     String?  @map("provider_reference") @db.VarChar(255)
-  providerResponse      Json?    @map("provider_response") @db.JsonB     // raw API response
+  status               String    @default("pending") @map("status") @db.VarChar(20)
+  isVerified           Boolean   @default(false) @map("is_verified")
+  verifiedAt           DateTime? @map("verified_at") @db.Timestamp(6)
+
 
   // ============================================
   // REJECTION
   // ============================================
-  rejectionReason     String?   @map("rejection_reason") @db.Text
-  rejectedAt          DateTime? @map("rejected_at") @db.Timestamp(6)
-  rejectedBy          String?   @map("rejected_by") @db.Uuid             // admin who rejected
+  rejectionReason      String?   @map("rejection_reason") @db.Text
+  rejectedAt           DateTime? @map("rejected_at") @db.Timestamp(6)
+  rejectedBy           String?   @map("rejected_by") @db.Uuid
+
+
+   // ============================================
+  // ATTEMPTS (max 3)
+  // ============================================
+  attemptCount         Int       @default(0) @map("attempt_count")
+  lastAttemptAt        DateTime? @map("last_attempt_at") @db.Timestamp(6)
+
 
   // ============================================
-  // ATTEMPTS TRACKING (max 3 attempts)
+  // PROVIDER
   // ============================================
-  attemptCount        Int       @default(0) @map("attempt_count")
-  lastAttemptAt       DateTime? @map("last_attempt_at") @db.Timestamp(6)
+  verificationProvider String?   @map("verification_provider") @db.VarChar(100)
+  providerReference    String?   @map("provider_reference") @db.VarChar(255)
+  providerResponse     Json?     @map("provider_response") @db.JsonB
 
-  // ============================================
-  // SYSTEM FIELDS
-  // ============================================
-  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
-  updatedAt           DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt            DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
 
-  // Relations
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([userId])
   @@index([status])
   @@index([isVerified])
   @@index([verificationType])
@@ -586,6 +647,113 @@ model Story {
   @@index([createdAt])
   @@map("stories")
 }
+
+//Reactions
+model Reaction {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  emoji      String   @map("emoji") @db.VarChar(10)
+
+  // Either begId or donationId — not both
+  begId      String?  @map("beg_id") @db.Uuid
+  donationId String?  @map("donation_id") @db.Uuid
+
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+
+  // Relations
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  beg        Beg?      @relation(fields: [begId], references: [id], onDelete: Cascade)
+  donation   Donation? @relation(fields: [donationId], references: [id], onDelete: Cascade)
+
+  // ONE reaction per user per beg OR per donation
+  @@unique([userId, begId])
+  @@unique([userId, donationId])
+  @@index([begId])
+  @@index([donationId])
+  @@index([userId])
+  @@map("reactions")
+}
+
+
+// ============================================
+// SUPPORT TICKET
+// ============================================
+model SupportTicket {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  ticketNumber String    @unique @map("ticket_number") @db.VarChar(20)
+  subject      String    @map("subject") @db.VarChar(255)
+  category     String    @map("category") @db.VarChar(50)
+  // Values: account | payment | beg | donation | kyc | technical | other
+  contactEmail String    @map("contact_email") @db.VarChar(255) // ← user's preferred contact email
+  status       String    @default("open") @map("status") @db.VarChar(20)
+  // Values: open | in_progress | waiting_user | resolved | closed
+  priority     String    @default("normal") @map("priority") @db.VarChar(20)
+  // Values: low | normal | high | urgent
+  assignedTo   String?   @map("assigned_to") @db.Uuid
+  resolvedAt   DateTime? @map("resolved_at") @db.Timestamp(6)
+  closedAt     DateTime? @map("closed_at") @db.Timestamp(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  // Relations
+  user         User              @relation("UserTickets", fields: [userId], references: [id], onDelete: Cascade)
+  assignee     User?             @relation("AssignedTickets", fields: [assignedTo], references: [id], onDelete: SetNull)
+  messages     SupportMessage[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([category])
+  @@index([assignedTo])
+  @@index([createdAt])
+  @@map("support_tickets")
+}
+
+// ============================================
+// SUPPORT MESSAGE
+// ============================================
+model SupportMessage {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ticketId   String   @map("ticket_id") @db.Uuid
+  senderId   String?  @map("sender_id") @db.Uuid  // null = AI message
+  senderType String   @map("sender_type") @db.VarChar(20)
+  // Values: user | agent | ai
+  content    String   @map("content") @db.Text
+  isRead     Boolean  @default(false) @map("is_read")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+
+  // Relations
+  ticket     SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  sender     User?         @relation("SentSupportMessages", fields: [senderId], references: [id], onDelete: SetNull)
+
+  @@index([ticketId])
+  @@index([senderId])
+  @@index([createdAt])
+  @@map("support_messages")
+}
+
+// ============================================
+// SUPPORT CHAT SESSION (AI Chat)
+// ============================================
+model SupportChat {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  sessionId String   @unique @map("session_id") @db.VarChar(100)
+  status    String   @default("active") @map("status") @db.VarChar(20)
+  // Values: active | escalated | closed
+  ticketId  String?  @map("ticket_id") @db.Uuid  // set when escalated to human
+  messages  Json     @default("[]") @map("messages") @db.JsonB
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@map("support_chats")
+}
+
+
 
 //
 //RELATIONSHIP

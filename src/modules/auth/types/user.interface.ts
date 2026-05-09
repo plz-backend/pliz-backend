@@ -34,6 +34,27 @@ export interface IUserStatsSummary {
   peopleHelpedThisWeek: number;
 }
 
+export interface IUserVerificationSummary {
+  verificationType: string | null;
+  status: string;
+  isVerified: boolean;
+  phoneVerified: boolean;
+  documentVerified: boolean;
+  faceLivenessPassed: boolean;
+  verifiedAt: Date | null;
+  rejectionReason: string | null;
+  attemptCount: number;
+  updatedAt: Date;
+}
+
+export interface IUserAvatarSummary {
+  avatarType: string;
+  avatarUrl: string | null;
+  avatarColor: string | null;
+  avatarLibraryId: string | null;
+  displayUrl: string;
+}
+
 /**
  * User Response Interface (excludes sensitive data)
  * NOTE: state lives inside profile.state — not duplicated here
@@ -53,6 +74,8 @@ export interface IUserResponse {
   updatedAt: Date;
   profile?: IUserProfile | null;
   stats?: IUserStatsSummary | null;
+  verification?: IUserVerificationSummary | null;
+  avatar?: IUserAvatarSummary | null;
 }
 
 /**
