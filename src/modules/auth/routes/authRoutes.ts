@@ -43,6 +43,12 @@ import {
 
 const router = express.Router();
 
+const frontendBaseUrl = (): string => (
+  process.env.FRONTEND_URL ||
+  process.env.EXPO_PUBLIC_FRONTEND_URL ||
+  'http://localhost:8081'
+).replace(/\/$/, '');
+
 // ============================================
 // PUBLIC ROUTES
 // ============================================
@@ -139,6 +145,14 @@ router.post(
  * @desc    Reset password with token
  * @access  Public
  */
+router.get('/reset-password', (req, res) => {
+  const token = typeof req.query.token === 'string' ? req.query.token.trim() : '';
+  const redirectUrl = token
+    ? `${frontendBaseUrl()}/reset-password?token=${encodeURIComponent(token)}`
+    : `${frontendBaseUrl()}/forgot-password`;
+  res.redirect(302, redirectUrl);
+});
+
 router.post(
   '/reset-password',
   authLimiter,
