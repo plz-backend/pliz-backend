@@ -18,7 +18,6 @@ export interface IUploadDocumentRequest {
   ninMiddleName?: string;
   ninStateOfOrigin?: string;
   ninLGA?: string;
-  ninEnrollmentDate?: string;    // YYYY-MM-DD
 
   // Passport fields — middle name first then number
   passportMiddleName?: string;

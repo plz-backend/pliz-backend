@@ -21,8 +21,7 @@ const sendResponse = <T = any>(res: Response, statusCode: number, response: IApi
  *   ninDocumentType: "slip" | "card",
  *   ninMiddleName: "Optional",
  *   ninStateOfOrigin: "Lagos",
- *   ninLGA: "Ikeja",
- *   ninEnrollmentDate: "2015-06-01"
+ *   ninLGA: "Ikeja"
  * }
  *
  * Passport FormData:
@@ -53,7 +52,7 @@ export const uploadDocument = async (req: Request, res: Response): Promise<void>
     const {
       verificationType, documentType,
       nin, ninDocumentType, ninMiddleName,
-      ninStateOfOrigin, ninLGA, ninEnrollmentDate,
+      ninStateOfOrigin, ninLGA,
       passportNumber, passportMiddleName,
       passportPlaceOfBirth, passportIssueDate,
       passportExpiry, passportPlaceOfIssue,
@@ -67,7 +66,7 @@ export const uploadDocument = async (req: Request, res: Response): Promise<void>
         verificationType,
         documentType,
         nin, ninDocumentType, ninMiddleName,
-        ninStateOfOrigin, ninLGA, ninEnrollmentDate,
+        ninStateOfOrigin, ninLGA,
         passportNumber, passportMiddleName,
         passportPlaceOfBirth, passportIssueDate,
         passportExpiry, passportPlaceOfIssue,

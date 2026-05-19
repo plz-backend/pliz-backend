@@ -67,12 +67,21 @@ export class KYCService {
       },
       {
         step: 4,
-        label: 'Face liveness check',
-        completed: Boolean(
-          verification?.status &&
-            FACE_LIVENESS_STEP_DONE_STATUSES.has(verification.status)
-        ),
-        description: 'Take a selfie to confirm you are a real person',
+        label:
+          verification?.verificationType === 'passport'
+            ? 'Selfie for passport match'
+            : 'Face liveness check',
+        completed:
+          verification?.verificationType === 'nin'
+            ? Boolean(verification?.documentVerified)
+            : Boolean(
+                verification?.status &&
+                  FACE_LIVENESS_STEP_DONE_STATUSES.has(verification.status)
+              ),
+        description:
+          verification?.verificationType === 'passport'
+            ? 'Take a selfie — it will be matched to your passport photo'
+            : 'Not required for NIN verification',
       },
       {
         step: 5,
@@ -90,6 +99,7 @@ export class KYCService {
       canRetry,
       ui: this.buildUIMessage(
         (verification?.status as KYCStatus) || null,
+        verification?.verificationType ?? null,
         canRetry,
         attemptsRemaining
       ),
@@ -154,12 +164,6 @@ export class KYCService {
         if (!data.ninDocumentType || !['slip', 'card'].includes(data.ninDocumentType)) {
           throw new Error('Please select NIN document type (slip or card).');
         }
-        if (!data.ninStateOfOrigin) throw new Error('State of origin is required.');
-        if (!data.ninLGA) throw new Error('LGA is required.');
-        if (!data.ninEnrollmentDate) throw new Error('Enrollment date is required.');
-        if (new Date(data.ninEnrollmentDate) > new Date()) {
-          throw new Error('Enrollment date cannot be in the future.');
-        }
 
       // ── VALIDATE PASSPORT FIELDS ─────────────
       } else if (data.verificationType === 'passport') {
@@ -213,9 +217,8 @@ export class KYCService {
         updateData.verificationType = 'nin';
         updateData.nin = data.nin;
         updateData.ninDocumentType = data.ninDocumentType;
-        updateData.ninStateOfOrigin = data.ninStateOfOrigin;
-        updateData.ninLGA = data.ninLGA;
-        updateData.ninEnrollmentDate = new Date(data.ninEnrollmentDate!);
+        if (data.ninStateOfOrigin) updateData.ninStateOfOrigin = data.ninStateOfOrigin;
+        if (data.ninLGA) updateData.ninLGA = data.ninLGA;
         if (data.ninMiddleName) updateData.ninMiddleName = data.ninMiddleName;
 
         if (data.documentType === 'nin_front') {
@@ -307,14 +310,22 @@ export class KYCService {
       if (!verification) throw new Error('Please start KYC verification first.');
       if (!verification.phoneVerified) throw new Error('Please verify your phone number first.');
       if (!verification.documentVerified) throw new Error('Please upload your document first.');
-      if (verification.status !== 'liveness_passed') {
+      const readyToSubmit =
+        verification.status === 'liveness_passed' ||
+        (verification.verificationType === 'nin' &&
+          verification.status === 'document_uploaded');
+
+      if (!readyToSubmit) {
         if (verification.status === 'under_review') {
           throw new Error('Your verification is already under review.');
         }
         if (verification.isVerified || verification.status === 'verified') {
           throw new Error('You are already verified.');
         }
-        throw new Error('Please complete the face liveness check first.');
+        if (verification.verificationType === 'passport') {
+          throw new Error('Please take a selfie before submitting your passport verification.');
+        }
+        throw new Error('Please upload your NIN document before submitting.');
       }
       if (verification.isVerified) throw new Error('You are already verified.');
       if (verification.attemptCount >= MAX_ATTEMPTS) {
@@ -381,7 +392,8 @@ export class KYCService {
     if (verification.status !== 'rejected') {
       const messages: Record<string, string> = {
         pending: 'Please verify your phone number first.',
-        document_uploaded: 'Please complete face liveness check.',
+        document_uploaded:
+          'Please submit your verification or complete the remaining steps.',
         liveness_passed: 'Please submit your verification.',
         under_review: 'Your verification is under review. Please wait.',
       };
@@ -667,22 +679,13 @@ export class KYCService {
       let result;
 
       if (verification.verificationType === 'nin') {
-        result = await IdentityVerificationService.verifyNIN(
-          verification.nin,
-          {
-            firstName: profile.firstName,
-            lastName: profile.lastName,
-            dateOfBirth: profile.dateOfBirth,
-            gender: profile.gender,
-            phoneNumber: profile.phoneNumber,
-          },
-          {
-            ninMiddleName: verification.ninMiddleName,
-            ninStateOfOrigin: verification.ninStateOfOrigin,
-            ninLGA: verification.ninLGA,
-            ninEnrollmentDate: verification.ninEnrollmentDate?.toISOString() || '',
-          }
-        );
+        result = await IdentityVerificationService.verifyNIN(verification.nin, {
+          firstName: profile.firstName,
+          lastName: profile.lastName,
+          dateOfBirth: profile.dateOfBirth,
+          gender: profile.gender,
+          phoneNumber: profile.phoneNumber,
+        });
       } else {
         result = await IdentityVerificationService.verifyPassport(
           verification.passportNumber,
@@ -698,7 +701,8 @@ export class KYCService {
             passportPlaceOfBirth: verification.passportPlaceOfBirth,
             passportIssueDate: verification.passportIssueDate?.toISOString() || '',
             passportPlaceOfIssue: verification.passportPlaceOfIssue,
-          }
+          },
+          verification.faceLivenessUrl || ''
         );
       }
 
@@ -889,6 +893,7 @@ export class KYCService {
   // ============================================
   private static buildUIMessage(
     status: KYCStatus | null,
+    verificationType: string | null,
     canRetry: boolean,
     attemptsRemaining: number
   ): any {
@@ -908,12 +913,20 @@ export class KYCService {
         buttonLabel: 'Verify phone',
         buttonUrl: '/kyc/phone',
       },
-      document_uploaded: {
-        title: 'Face liveness check',
-        body: 'Document uploaded! Now take a selfie to confirm you are a real person.',
-        buttonLabel: 'Take selfie',
-        buttonUrl: '/kyc/liveness',
-      },
+      document_uploaded:
+        verificationType === 'passport'
+          ? {
+              title: 'Take a selfie',
+              body: 'Document uploaded! Take a selfie — it will be matched to your passport photo.',
+              buttonLabel: 'Take selfie',
+              buttonUrl: '/kyc/liveness',
+            }
+          : {
+              title: 'Submit verification',
+              body: 'Document uploaded! Submit your verification for final NIN check.',
+              buttonLabel: 'Submit',
+              buttonUrl: '/kyc/submit',
+            },
       liveness_passed: {
         title: 'Submit verification',
         body: 'Almost done! Submit your verification for final check.',

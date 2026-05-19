@@ -27,21 +27,31 @@ export class KYCDocumentUploadService {
 
       const fileName = `${userId}/${documentType}_${Date.now()}.jpg`;
 
-      const { error } = await supabase.storage
+      const uploadResult = await supabase.storage
         .from(BUCKET)
         .upload(fileName, processedBuffer, {
           contentType: 'image/jpeg',
           upsert: true,
         });
 
-      if (error) {
-        logger.error('Supabase KYC upload error', { error: error.message });
+      if (!uploadResult || typeof uploadResult !== 'object') {
+        throw new Error('Storage upload returned an invalid response');
+      }
+
+      const { error: uploadError } = uploadResult;
+
+      if (uploadError) {
+        logger.error('Supabase KYC upload error', { error: uploadError.message });
         throw new Error('Failed to upload document');
       }
 
       const { data: urlData } = supabase.storage
         .from(BUCKET)
         .getPublicUrl(fileName);
+
+      if (!urlData?.publicUrl) {
+        throw new Error('Failed to resolve uploaded document URL');
+      }
 
       logger.info('KYC document uploaded', { userId, documentType });
 
