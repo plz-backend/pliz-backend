@@ -129,3 +129,4 @@ jobs:
             --set-secrets=JWT_REFRESH_SECRET=JWT_REFRESH_SECRET:latest
             --set-secrets=SCHEDULER_SECRET=SCHEDULER_SECRET:latest
             --set-env-vars=NODE_ENV=production,SCHEDULER_ENABLED=false,KYC_REQUIRE_FACE_LIVENESS=false,COOKIE_SECURE=true
+            
