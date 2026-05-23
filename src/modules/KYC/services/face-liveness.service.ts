@@ -1,6 +1,7 @@
 import axios from 'axios';
 import prisma from '../../../config/database';
 import logger from '../../../config/logger';
+import { kycRequireFaceLiveness } from '../../../config/env';
 import { KYCDocumentUploadService } from './document-upload.service';
 
 const PREMBLY_BASE_URL = 'https://api.prembly.com';
@@ -12,10 +13,37 @@ const getHeaders = () => ({
   'Content-Type': 'application/json',
 });
 
+const shouldSkipPrembly = () =>
+  process.env.PREMBLY_SKIP_VERIFICATION === 'true';
+
+function normalizeBase64Image(image: string): string {
+  const trimmed = image.trim();
+  const commaIndex = trimmed.indexOf(',');
+  if (trimmed.startsWith('data:') && commaIndex !== -1) {
+    return trimmed.slice(commaIndex + 1);
+  }
+  return trimmed;
+}
+
+function extractLivenessScore(result: Record<string, any>): number {
+  const raw =
+    result.confidence ??
+    result.confidence_in_percentage ??
+    result.face_data?.confidence_value ??
+    result.face_data?.confidence;
+
+  if (typeof raw !== 'number' || Number.isNaN(raw)) return 0;
+  return raw > 1 ? raw / 100 : raw;
+}
+
+function isPremblySuccess(result: Record<string, any>): boolean {
+  return result.status === true || result.response_code === '00';
+}
+
 export class FaceLivenessService {
 
   // ============================================
-  // VERIFY FACE LIVENESS
+  // VERIFY FACE LIVENESS (passport flow — stores selfie for face match)
   // ============================================
   static async verifyFaceLiveness(
     userId: string,
@@ -28,6 +56,7 @@ export class FaceLivenessService {
           phoneVerified: true,
           documentVerified: true,
           isVerified: true,
+          verificationType: true,
         },
       });
 
@@ -43,57 +72,55 @@ export class FaceLivenessService {
       if (verification.isVerified) {
         throw new Error('Your identity is already verified.');
       }
+      if (verification.verificationType === 'nin') {
+        throw new Error(
+          'Face liveness is not required for NIN verification. Submit your verification instead.'
+        );
+      }
+      if (!kycRequireFaceLiveness()) {
+        throw new Error(
+          'Face liveness is not required for verification at this time. Submit your verification instead.'
+        );
+      }
 
-      // Dev mode — skip actual API call
-      if (process.env.NODE_ENV === 'development') {
-        logger.info('DEV MODE — Face liveness skipped');
+      const normalizedBase64 = normalizeBase64Image(imageBase64);
+      if (!normalizedBase64) {
+        throw new Error('Selfie image is empty. Please take a photo and try again.');
+      }
 
-        const faceBuffer = Buffer.from(imageBase64, 'base64');
-        const faceUrl = await KYCDocumentUploadService.uploadDocument(
-          userId,
-          faceBuffer,
-          'image/jpeg',
-          'face_liveness'
+      let score = 0.99;
+
+      if (!shouldSkipPrembly()) {
+        logger.info('Calling Prembly face liveness API', { userId });
+
+        const response = await axios.post(
+          `${PREMBLY_BASE_URL}/verification/biometrics/face/liveliness_check`,
+          { image: normalizedBase64 },
+          { headers: getHeaders(), timeout: 30000 }
         );
 
-        await prisma.userVerification.update({
-          where: { userId },
-          data: {
-            faceLivenessUrl: faceUrl,
-            faceLivenessPassed: true,
-            faceLivenessScore: 0.99,
-            faceLivenessPassedAt: new Date(),
-            status: 'liveness_passed',
-          },
-        });
+        const result = response.data ?? {};
+        score = extractLivenessScore(result);
+        const passed = isPremblySuccess(result) && score >= MIN_LIVENESS_SCORE;
 
-        return { passed: true, score: 0.99 };
+        if (!passed) {
+          logger.warn('Face liveness failed', { userId, score });
+          return {
+            passed: false,
+            score,
+            error:
+              score > 0 && score < MIN_LIVENESS_SCORE
+                ? `Liveness score too low (${Math.round(score * 100)}%). Please ensure good lighting and try again.`
+                : result.detail ||
+                  result.message ||
+                  'Face liveness check failed. Please try again.',
+          };
+        }
+      } else {
+        logger.info('PREMBLY_SKIP_VERIFICATION — face liveness skipped', { userId });
       }
 
-      // Call Prembly face liveness API
-      const response = await axios.post(
-        `${PREMBLY_BASE_URL}/identitypass/verification/face_liveness`,
-        { image: imageBase64 },
-        { headers: getHeaders(), timeout: 30000 }
-      );
-
-      const result = response.data;
-      const score = result.face_data?.confidence_value || 0;
-      const passed = result.status === true && score >= MIN_LIVENESS_SCORE;
-
-      if (!passed) {
-        logger.warn('Face liveness failed', { userId, score });
-        return {
-          passed: false,
-          score,
-          error: score < MIN_LIVENESS_SCORE
-            ? `Liveness score too low (${Math.round(score * 100)}%). Please ensure good lighting and try again.`
-            : result.detail || 'Face liveness check failed. Please try again.',
-        };
-      }
-
-      // Upload selfie to Supabase
-      const faceBuffer = Buffer.from(imageBase64, 'base64');
+      const faceBuffer = Buffer.from(normalizedBase64, 'base64');
       const faceUrl = await KYCDocumentUploadService.uploadDocument(
         userId,
         faceBuffer,
@@ -115,7 +142,24 @@ export class FaceLivenessService {
       logger.info('Face liveness passed', { userId, score });
       return { passed: true, score };
     } catch (error: any) {
-      logger.error('Face liveness failed', { error: error.message, userId });
+      if (axios.isAxiosError(error)) {
+        const detail =
+          error.response?.data?.detail ??
+          error.response?.data?.message ??
+          error.message;
+        logger.error('Face liveness API failed', {
+          userId,
+          status: error.response?.status,
+          detail,
+        });
+        throw new Error(
+          typeof detail === 'string'
+            ? detail
+            : 'Face liveness check failed. Please try again.'
+        );
+      }
+
+      logger.error('Face liveness failed', { error: error?.message, userId });
       throw error;
     }
   }

@@ -267,7 +267,7 @@ model Donation {
   amount           Decimal  @db.Decimal(12, 2) // Must be > 0 enforced in app
   isAnonymous      Boolean  @default(false) @map("is_anonymous")
   paymentMethod    String?  @map("payment_method") @db.VarChar(30)
-  paymentReference String?  @map("payment_reference") @db.VarChar(255)
+  paymentReference String?  @unique @map("payment_reference") @db.VarChar(255)
   status           String   @default("success") @db.VarChar(20) // Values: success, failed, reversed
   ipAddress        String?   @map("ip_address") @db.VarChar(45)
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamp(6)
@@ -602,8 +602,8 @@ model Withdrawal {
   bankAccountId     String    @map("bank_account_id") @db.Uuid
   amountRequested   Decimal   @map("amount_requested") @db.Decimal(12, 2)
   companyFee        Decimal   @map("company_fee") @db.Decimal(12, 2) // 5%
-  vatFee            Decimal   @map("vat_fee") @db.Decimal(12, 2) // 7.5%
-  totalFees         Decimal   @map("total_fees") @db.Decimal(12, 2) // 12.5%
+  vatFee            Decimal   @map("vat_fee") @db.Decimal(12, 2) // 7.5% of companyFee
+  totalFees         Decimal   @map("total_fees") @db.Decimal(12, 2) // 5.375% effective total
   amountToReceive   Decimal   @map("amount_to_receive") @db.Decimal(12, 2)
   transferReference String?   @unique @map("transfer_reference") @db.VarChar(255)
   status            String    @default("pending") @db.VarChar(20) // pending, processing, completed, failed

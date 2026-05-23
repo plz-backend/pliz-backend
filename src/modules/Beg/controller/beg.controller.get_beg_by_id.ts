@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { BegService } from '../services/beg.service';
+import { DonationService } from '../../Donor/services/donation.service';
 import { IApiResponse } from '../../auth/types/user.interface';
 import logger from '../../../config/logger';
 
@@ -51,10 +52,16 @@ export const getBegById = async (
       return;
     }
 
+    const viewerId = (req as any).user?.userId as string | undefined;
+    let viewerDonation = null;
+    if (viewerId && viewerId !== beg.userId) {
+      viewerDonation = await DonationService.getViewerDonationSummary(viewerId, id);
+    }
+
     const response: IApiResponse = {
       success: true,
       message: 'Beg retrieved successfully',
-      data: { beg },
+      data: { beg: { ...beg, viewerDonation } },
     };
 
     sendResponse(res, 200, response);

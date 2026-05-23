@@ -3,17 +3,21 @@ import crypto from 'crypto';
 import { DonationService } from '../modules/Donor/services/donation.service';
 import logger from '../config/logger';
 
-function verifySignature(rawBody: Buffer, signature: string): boolean {
-  const hash = crypto
-    .createHmac('sha512', process.env.PAYSTACK_SECRET_KEY!)
-    .update(rawBody)
-    .digest('hex');
-  return hash === signature;
+function verifySignature(rawBody: Buffer, signature: string | undefined): boolean {
+  const secret = process.env.PAYSTACK_SECRET_KEY;
+  if (!secret || !signature) return false;
+
+  const hash = crypto.createHmac('sha512', secret).update(rawBody).digest('hex');
+  const hashBuf = Buffer.from(hash);
+  const sigBuf = Buffer.from(signature);
+
+  if (hashBuf.length !== sigBuf.length) return false;
+  return crypto.timingSafeEqual(hashBuf, sigBuf);
 }
 
 async function handleWebhook(req: Request, res: Response) {
   try {
-    const signature = req.headers['x-paystack-signature'] as string;
+    const signature = req.headers['x-paystack-signature'] as string | undefined;
     const rawBody = req.body as Buffer;
 
     if (!verifySignature(rawBody, signature)) {
@@ -30,14 +34,20 @@ async function handleWebhook(req: Request, res: Response) {
       const reference = data?.reference;
 
       if (reference) {
+        const metadata = data.metadata ?? {};
         const donationData = {
-          begId: data.metadata.beg_id,
-          donorId: data.metadata.donor_id,
-          amount: data.amount / 100,            // kobo to Naira
-          isAnonymous: data.metadata.is_anonymous || false,
+          begId: metadata.beg_id,
+          donorId: metadata.donor_id ?? '',
+          amount: data.amount / 100,
+          isAnonymous: Boolean(metadata.is_anonymous),
           paymentReference: reference,
-          paymentMethod: data.channel,
+          paymentMethod: data.channel || 'card',
         };
+
+        if (!donationData.begId) {
+          logger.error('Webhook: missing beg_id in metadata', { reference });
+          return res.status(200).json({ status: 'ignored' });
+        }
 
         try {
           await DonationService.processDonation(donationData);
@@ -47,15 +57,15 @@ async function handleWebhook(req: Request, res: Response) {
             reference,
             error: directError.message,
           });
+          return res.status(500).json({ status: 'error' });
         }
       }
     }
 
-    // Always return 200 immediately
     return res.status(200).json({ status: 'success' });
   } catch (error: any) {
-    logger.error('Paystack webhook error', { error: error.message, stack: error.stack });
-    return res.status(200).json({ status: 'error' }); // Still 200 to stop retries
+    logger.error('Paystack webhook error', { error: error.message });
+    return res.status(500).json({ status: 'error' });
   }
 }
 

@@ -11,6 +11,7 @@ import { errorLogger } from './logger/logger-middleware';
 import authRoutes from './modules/auth/routes/authRoutes';
 import sessionRoutes from './modules/auth/routes/session.routes';
 import profileRoutes from './modules/auth/routes/profile.routes';
+import usersRoutes from './modules/auth/routes/users.routes';
 import kycRoutes from './modules/KYC/routes/kyc.routes';
 import begRoutes from './modules/Beg/routers/beg.routers';
 import donorRoutes from './modules/Donor/router/donations.routes';
@@ -24,6 +25,9 @@ import reactionRoutes from './modules/Reactions/routes/reaction.routes';
 import profilePictureRoutes from './modules/ProfilePicture/routes/profile-picture.routes';
 import locationRoutes from './modules/Location/routes/location.routes';
 import supportRoutes from './modules/Support/routes/support.routes';
+import schedulerRoutes from './routes/scheduler.routes';
+import { runHealthChecks } from './config/health';
+import { isProduction } from './config/env';
 
 export const createApp = (): Express => {
   const app = express();
@@ -43,7 +47,9 @@ export const createApp = (): Express => {
     : [];
   const corsOriginOption =
     corsOrigins.length === 0
-      ? true
+      ? isProduction()
+        ? false
+        : true
       : corsOrigins.length === 1
         ? corsOrigins[0]
         : corsOrigins;
@@ -73,6 +79,7 @@ export const createApp = (): Express => {
   // ============================================
   app.use('/api/auth', authRoutes);
   app.use('/api/auth/profile', profileRoutes);
+  app.use('/api/users', usersRoutes);
   app.use('/api/kyc', kycRoutes);
   app.use('/api/sessions', sessionRoutes);
   app.use('/api/begs', begRoutes);
@@ -86,6 +93,7 @@ export const createApp = (): Express => {
   app.use('/api/profile-picture', profilePictureRoutes);
   app.use('/api/location', locationRoutes);
   app.use('/api/support', supportRoutes);
+  app.use('/internal/scheduler', schedulerRoutes);
 
   // ============================================
   // ROOT ENDPOINT
@@ -130,18 +138,20 @@ export const createApp = (): Express => {
   // ============================================
   // HEALTH CHECK
   // ============================================
-  app.get('/health', async (req: Request, res: Response) => {
-    const response: IApiResponse = {
-      success: true,
-      message: 'Server is healthy',
-      data: {
-        status: 'healthy',
-        uptime: process.uptime(),
-        timestamp: new Date().toISOString(),
-      },
-    };
+  app.get('/health', async (_req: Request, res: Response) => {
+    const health = await runHealthChecks();
+    const httpStatus = health.status === 'unhealthy' ? 503 : 200;
 
-    res.status(200).json(response);
+    res.status(httpStatus).json({
+      success: health.status !== 'unhealthy',
+      message:
+        health.status === 'healthy'
+          ? 'Server is healthy'
+          : health.status === 'degraded'
+            ? 'Server is degraded'
+            : 'Server is unhealthy',
+      data: health,
+    });
   });
 
   // ============================================

@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import http from 'http';
+import { validateEnv } from './config/env';
 import { connectDB, disconnectDB } from './config/database';
 import redisClient from './config/redis';
 import { EmailService } from './modules/auth/services/emailService';
@@ -18,6 +19,8 @@ import { startBegMaintenanceCron } from './modules/Beg/beg_extend_notification/c
 
 const startServer = async (): Promise<void> => {
   try {
+    validateEnv();
+
     // 1. Connect to PostgreSQL
     await connectDB();
 

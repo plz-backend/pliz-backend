@@ -219,10 +219,10 @@ router.post(
 // OAUTH ROUTES (PUBLIC)
 // ============================================ 
 // POST /api/auth/google
-router.post('/google', googleLoginValidation, validateRequest, googleLogin);
+router.post('/google', authLimiter, googleLoginValidation, validateRequest, googleLogin);
 
 // POST /api/auth/apple
-router.post('/apple', appleLoginValidation, validateRequest, appleLogin);
+router.post('/apple', authLimiter, appleLoginValidation, validateRequest, appleLogin);
 
 // ============================================
 // ADMIN ROUTES (PROTECTED)

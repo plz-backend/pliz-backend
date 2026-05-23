@@ -15,19 +15,20 @@ import {
   createTicketValidation,
   replyTicketValidation,
 } from '../validations/support.validation';
+import { supportLimiter } from '../../auth/middleware/auth/rateLimiter';
 
 const router = Router();
 
 // ============================================
 // AI CHAT
 // ============================================
-router.post('/chat', authenticate, aiChatValidation, validateRequest, aiChat);
-router.post('/chat/escalate', authenticate, escalateValidation, validateRequest, escalateToHuman);
+router.post('/chat', authenticate, supportLimiter, aiChatValidation, validateRequest, aiChat);
+router.post('/chat/escalate', authenticate, supportLimiter, escalateValidation, validateRequest, escalateToHuman);
 
 // ============================================
 // TICKETS
 // ============================================
-router.post('/tickets', authenticate, checkAccountStatus, createTicketValidation, validateRequest, createTicket);
+router.post('/tickets', authenticate, checkAccountStatus, supportLimiter, createTicketValidation, validateRequest, createTicket);
 router.get('/tickets', authenticate, getTickets);
 router.get('/tickets/:id', authenticate, getTicket);
 router.post('/tickets/:id/reply', authenticate, replyTicketValidation, validateRequest, replyTicket);

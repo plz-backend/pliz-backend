@@ -122,53 +122,29 @@ router.get('/activity', getAdminActions);
 // STORY MANAGEMENT
 // ============================================
 
-router.get('/', adminGetStories);                                                                 // GET  /api/admin/stories?filter=pending
-router.get('/:id', storyIdValidation, validateRequest, adminGetStoryById);                        // GET  /api/admin/stories/:id
-router.patch('/:id/approve', storyIdValidation, validateRequest, adminApproveStory);              // PATCH /api/admin/stories/:id/approve
-router.patch('/:id/reject', rejectStoryValidation, validateRequest, adminRejectStory);            // PATCH /api/admin/stories/:id/reject
-router.patch('/:id/toggle-visibility', storyIdValidation, validateRequest, adminToggleVisibility);// PATCH /api/admin/stories/:id/toggle-visibility
-router.delete('/:id', storyIdValidation, validateRequest, adminDeleteStory);    
+router.get('/stories', adminGetStories);
+router.get('/stories/:id', storyIdValidation, validateRequest, adminGetStoryById);
+router.patch('/stories/:id/approve', storyIdValidation, validateRequest, adminApproveStory);
+router.patch('/stories/:id/reject', rejectStoryValidation, validateRequest, adminRejectStory);
+router.patch('/stories/:id/toggle-visibility', storyIdValidation, validateRequest, adminToggleVisibility);
+router.delete('/stories/:id', storyIdValidation, validateRequest, adminDeleteStory);
 
 // ============================================
 // SUPPORT TICKET MANAGEMENT (optional)
 // ============================================
-router.get('/tickets', authenticate, requireAdmin, getAllTickets);
-router.post('/tickets/:id/reply', authenticate, requireAdmin, adminReplyValidation, validateRequest, adminReply);
-router.patch('/tickets/:id/assign', authenticate, requireAdmin, assignTicket);
-router.patch('/tickets/:id/status', authenticate, requireAdmin, updateStatusValidation, validateRequest, updateTicketStatus);
-
+router.get('/tickets', getAllTickets);
+router.post('/tickets/:id/reply', adminReplyValidation, validateRequest, adminReply);
+router.patch('/tickets/:id/assign', assignTicket);
+router.patch('/tickets/:id/status', updateStatusValidation, validateRequest, updateTicketStatus);
 
 // ============================================
 // KYC MANAGEMENT
 // ============================================
-// GET /api/admin/kyc/stats — must be before /:userId
-router.get('/stats', authenticate, requireAdmin, getVerificationStats);
-
-// GET /api/admin/kyc
-router.get('/', authenticate, requireAdmin, getAllVerifications);
-
-// GET /api/admin/kyc/:userId
-router.get('/:userId', authenticate, requireAdmin, getVerification);
-
-// PATCH /api/admin/kyc/:userId/verify
-router.patch(
-'/:userId/verify',
-  authenticate,
-  requireAdmin,
-  manuallyVerifyValidation,
-  validateRequest,
-  manuallyVerify
-);
-
-// PATCH /api/admin/kyc/:userId/reject
-router.patch(
-  '/:userId/reject',
-  authenticate,
-  requireAdmin,
-  manuallyRejectValidation,
-  validateRequest,
-  manuallyReject
-);
+router.get('/kyc/stats', getVerificationStats);
+router.get('/kyc', getAllVerifications);
+router.get('/kyc/:userId', getVerification);
+router.patch('/kyc/:userId/verify', manuallyVerifyValidation, validateRequest, manuallyVerify);
+router.patch('/kyc/:userId/reject', manuallyRejectValidation, validateRequest, manuallyReject);
 
 
 export default router;

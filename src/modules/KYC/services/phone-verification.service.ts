@@ -1,6 +1,7 @@
 import prisma from '../../../config/database';
 import axios from 'axios';
 import logger from '../../../config/logger';
+import { maskPhoneForLog } from '../../../utils/sanitize-log';
 
 const OTP_EXPIRY_MINUTES = 10;
 const OTP_RESEND_COOLDOWN_SECONDS = 60;
@@ -83,7 +84,7 @@ export class PhoneVerificationService {
       logger.info('Phone OTP sent', {
         userId,
         channel,
-        phone: profile.phoneNumber,
+        phone: maskPhoneForLog(profile.phoneNumber),
       });
 
       return {
@@ -370,9 +371,8 @@ export class PhoneVerificationService {
     // Dev mode — skip actual API call
     if (process.env.NODE_ENV === 'development') {
       logger.info('DEV MODE — OTP not sent', {
-        phone: phoneNumber,
+        phone: maskPhoneForLog(phoneNumber),
         channel,
-        devOtp: '123456',
       });
       return `DEV_REF_${Date.now()}`;
     }
@@ -415,13 +415,13 @@ export class PhoneVerificationService {
         );
       }
 
-      logger.info(`OTP sent via ${channel}`, { phone: phoneNumber });
+      logger.info(`OTP sent via ${channel}`, { phone: maskPhoneForLog(phoneNumber) });
 
       return response.data.data.reference as string;
     } catch (error: any) {
       logger.error(`SendChamp ${channel} send failed`, {
         error: error.message,
-        phone: phoneNumber,
+        phone: maskPhoneForLog(phoneNumber),
       });
       throw new Error(
         error.response?.data?.message ||
