@@ -1,6 +1,7 @@
 import axios from 'axios';
 import prisma from '../../../config/database';
 import logger from '../../../config/logger';
+import { kycRequireFaceLiveness } from '../../../config/env';
 import { KYCDocumentUploadService } from './document-upload.service';
 
 const PREMBLY_BASE_URL = 'https://api.prembly.com';
@@ -74,6 +75,11 @@ export class FaceLivenessService {
       if (verification.verificationType === 'nin') {
         throw new Error(
           'Face liveness is not required for NIN verification. Submit your verification instead.'
+        );
+      }
+      if (!kycRequireFaceLiveness()) {
+        throw new Error(
+          'Face liveness is not required for verification at this time. Submit your verification instead.'
         );
       }
 

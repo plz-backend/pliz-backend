@@ -283,10 +283,6 @@ export class BegService {
       }
       // ─────────────────────────────────────────
 
-      // Calculate expiry
-      const expiresAt = new Date();
-      expiresAt.setHours(expiresAt.getHours() + expiryHours);
-
       // Create beg
       const beg = await prisma.beg.create({
         data: {
@@ -297,7 +293,7 @@ export class BegService {
           amountRaised: 0,
           status: 'active',
           expiryHours,
-          expiresAt,
+          expiresAt: BEG_EXPIRY_PENDING_PLACEHOLDER,
           payoutRequested: false,
           isAnonymous,
           approved: false,
@@ -305,35 +301,6 @@ export class BegService {
           mediaUrl: data.mediaUrl || null,
         },
       });
-
-      // Set cooldown + increment daily count
-      await Promise.all([
-        CooldownService.setCooldown(userId, trustInfo.tier),
-        CooldownService.incrementDailyRequestCount(userId),
-      ]);
-
-      // Update stats
-      await prisma.userStats.upsert({
-        where: { userId },
-        update: { requestsCount: { increment: 1 } },
-        create: {
-          userId,
-          requestsCount: 1,
-          totalReceived: 0,
-          totalDonated: 0,
-          abuseFlags: 0,
-        },
-      });
-
-      // Invalidate cache + update last request time
-      await Promise.all([
-        TrustScoreService.invalidateTrustScoreCache(userId),
-        prisma.userTrust.upsert({
-          where: { userId },
-          update: { lastRequestAt: new Date() },
-          create: { userId, lastRequestAt: new Date() },
-        }),
-      ]);
 
       logger.info('Beg created successfully', {
         begId: beg.id,

@@ -9,6 +9,7 @@ import { authenticate } from '../../auth/middleware/auth/auth';
 import { updateBankAccount } from '../controllers/update_bank_account';
 import { deleteBankAccount } from '../controllers/delete_bank_account';
 import { checkAccountStatus } from '../../auth/middleware/auth/account_status.middleware';
+import { withdrawalLimiter } from '../../auth/middleware/auth/rateLimiter';
 
 const router = Router();
 
@@ -28,7 +29,7 @@ router.get('/banks', getBanks);
  * @desc    Resolve account name via Paystack (does not save)
  * @access  Private
  */
-router.post('/resolve-account', authenticate, resolveBankAccount);
+router.post('/resolve-account', authenticate, withdrawalLimiter, resolveBankAccount);
 
 /**
  * @route   POST /api/withdrawals/bank-accounts
@@ -74,6 +75,6 @@ router.get('/', authenticate, getWithdrawals);
  * @desc    Request withdrawal of raised funds from a funded or expired beg
  * @access  Private
  */
-router.post('/request', authenticate, checkAccountStatus, requestWithdrawal);
+router.post('/request', authenticate, checkAccountStatus, withdrawalLimiter, requestWithdrawal);
 
 export default router;

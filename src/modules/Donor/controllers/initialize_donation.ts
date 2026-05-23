@@ -5,6 +5,7 @@ import { PaymentMethodService } from '../../Payment/services/payment_method.serv
 import { trustEngine } from '../../../services/trust-engine';
 import { IApiResponse } from '../../auth/types/user.interface';
 import logger from '../../../config/logger';
+import { isAllowedPaystackCallbackUrl } from '../utils/paystack-callback-url';
 
 const sendResponse = <T = any>(
   res: Response,
@@ -24,7 +25,8 @@ const QUICK_DONATION_AMOUNTS = [1000, 2000, 3000, 5000];
 export const initializeDonation = async (req: Request, res: Response): Promise<void> => {
   try {
     const donorId = (req as any).user?.userId;
-    const { begId, amount, isAnonymous, paymentMethod, savedCardId } = req.body;
+    const { begId, amount, isAnonymous, paymentMethod, savedCardId, callbackUrl } =
+      req.body;
     const ip = req.ip || req.headers['x-forwarded-for'] as string || 'unknown';
 
     // ============================================
@@ -256,6 +258,18 @@ export const initializeDonation = async (req: Request, res: Response): Promise<v
     // ============================================
     // REGULAR PAYSTACK CHECKOUT FLOW
     // ============================================
+    let resolvedCallbackUrl: string | undefined;
+    if (typeof callbackUrl === 'string' && callbackUrl.trim()) {
+      if (!isAllowedPaystackCallbackUrl(callbackUrl)) {
+        sendResponse(res, 400, {
+          success: false,
+          message: 'Invalid payment callback URL',
+        });
+        return;
+      }
+      resolvedCallbackUrl = callbackUrl.trim();
+    }
+
     const payment = await PaymentService.initializePayment({
       email: donorEmail,
       amount: actualAmount,
@@ -263,6 +277,7 @@ export const initializeDonation = async (req: Request, res: Response): Promise<v
       begId,
       donorId,
       isAnonymous: effectiveIsAnonymous,
+      callbackUrl: resolvedCallbackUrl,
     });
 
     if (!payment.success) {

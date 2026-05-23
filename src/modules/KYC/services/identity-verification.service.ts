@@ -1,6 +1,7 @@
 import axios from 'axios';
 import logger from '../../../config/logger';
 import { IPremblyVerificationResult } from '../types/kyc.interface';
+import { maskPassportForLog } from '../../../utils/sanitize-log';
 
 const PREMBLY_BASE_URL = 'https://api.prembly.com';
 
@@ -119,6 +120,107 @@ export class IdentityVerificationService {
     }
   }
 
+  // VERIFY PASSPORT (basic — no face match)
+  // Used when KYC_REQUIRE_FACE_LIVENESS=false
+  // ============================================
+  static async verifyPassportBasic(
+    passportNumber: string,
+    passportExpiry: string,
+    profile: {
+      firstName: string;
+      lastName: string;
+      dateOfBirth: Date | null;
+      gender: string | null;
+    }
+  ): Promise<IPremblyVerificationResult> {
+    const normalizedPassport = passportNumber.trim().toUpperCase();
+
+    try {
+      if (new Date(passportExpiry) < new Date()) {
+        return {
+          verified: false,
+          reference: normalizedPassport,
+          error: 'Your passport has expired. Please use a valid passport.',
+        };
+      }
+
+      if (shouldSkipPrembly()) {
+        logger.info('PREMBLY_SKIP_VERIFICATION — Passport verification skipped');
+        return { verified: true, reference: normalizedPassport };
+      }
+
+      logger.info('Calling Prembly Passport API', {
+        passport: maskPassportForLog(normalizedPassport),
+      });
+
+      const response = await axios.post(
+        `${PREMBLY_BASE_URL}/verification/national_passport`,
+        {
+          number: normalizedPassport,
+          last_name: profile.lastName.trim(),
+        },
+        { headers: getHeaders(), timeout: 60000 }
+      );
+
+      const result = response.data;
+      const isSuccess =
+        result.status === true || result.response_code === '00';
+
+      if (!isSuccess) {
+        return {
+          verified: false,
+          reference: normalizedPassport,
+          error:
+            result.detail ||
+            result.message ||
+            'Passport verification failed. Please check your passport details.',
+        };
+      }
+
+      const passportData = result.passport_data || result.data || {};
+      const providerReference =
+        result.verification?.reference?.toString() || normalizedPassport;
+
+      const firstNameMatch = this.nameMatch(
+        passportData.first_name || passportData.firstname || '',
+        profile.firstName
+      );
+      const lastNameMatch = this.nameMatch(
+        passportData.last_name || passportData.surname || '',
+        profile.lastName
+      );
+
+      if (!firstNameMatch || !lastNameMatch) {
+        return {
+          verified: false,
+          reference: providerReference,
+          data: passportData,
+          error:
+            'The name on your passport does not match your profile name. Please update your first name and last name to exactly match your passport.',
+        };
+      }
+
+      return {
+        verified: true,
+        reference: providerReference,
+        data: passportData,
+      };
+    } catch (error: any) {
+      logger.error('Passport API failed', {
+        error: error.message,
+        status: error.response?.status,
+      });
+      return {
+        verified: false,
+        reference: normalizedPassport,
+        error:
+          error.response?.data?.detail ||
+          error.response?.data?.message ||
+          'Passport verification failed. Please try again later.',
+      };
+    }
+  }
+
   // ============================================
   // VERIFY PASSPORT — Prembly v2 (+ Face Validation)
   // https://docs.prembly.com/reference/international-passport-face-validation
@@ -165,7 +267,7 @@ export class IdentityVerificationService {
       }
 
       logger.info('Calling Prembly Passport + Face API', {
-        passport: normalizedPassport.substring(0, 3) + '****',
+        passport: maskPassportForLog(normalizedPassport),
       });
 
       const response = await axios.post(

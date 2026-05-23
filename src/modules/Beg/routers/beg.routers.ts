@@ -1,10 +1,9 @@
 
 
 import { Router } from 'express';
-import { authenticate } from '../../auth/middleware/auth/auth';
+import { authenticate, authenticateOptional } from '../../auth/middleware/auth/auth';
 import { checkAccountStatus } from '../../auth/middleware/auth/account_status.middleware.js';  
 import { checkProfileComplete } from '../../auth/middleware/auth/check_profile_complete.js'; 
-import { checkCooldown } from '../middleware/check_cooldown';
 import { generalLimiter } from '../../auth/middleware/auth/rateLimiter.js';
 import { validateRequest } from '../../auth/middleware/auth/validateRequest';
 
@@ -87,6 +86,7 @@ router.get(
   generalLimiter,
   getBegByIdValidation,
   validateRequest,
+  authenticateOptional,
   getBegById
 );
 
@@ -103,7 +103,6 @@ router.post(
   '/',
   authenticate,
   checkProfileComplete,
-  checkCooldown,
   // requireKYC,              // ← blocks unverified users
   createBegValidation,
   checkAccountStatus,

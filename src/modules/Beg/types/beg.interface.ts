@@ -99,6 +99,12 @@ export interface IBegResponse {
     hours: ExpiryHours;
     label: string;
   }[];
+  /** Present when an authenticated viewer has donated to this beg. */
+  viewerDonation?: {
+    totalAmount: number;
+    donationCount: number;
+    lastDonatedAt: Date;
+  } | null;
 }
 
 export interface IAdminBegResponse extends IBegResponse {

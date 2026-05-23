@@ -1,11 +1,12 @@
 import prisma from '../../../config/database';
+import { Prisma } from '@prisma/client';
 import axios from 'axios';
 import { Decimal } from '@prisma/client/runtime/library';
 import logger from '../../../config/logger';
 import { WithdrawalEmailService } from './withdrawal_email.service';
 
 const COMPANY_FEE_RATE = 0.05; // 5%
-const VAT_RATE =  0.075; // 7.5%
+const VAT_RATE = 0.075; // 7.5% of the company fee
 
 // ============================================
 // HELPER
@@ -145,7 +146,8 @@ export class WithdrawalService {
   }
 
   /**
-   * Calculate withdrawal fees
+   * Calculate withdrawal fees.
+   * VAT is charged on the 5% company/platform fee, not on the full raised amount.
    */
   static calculateFees(amountRaised: number): {
     amountRequested: number;
@@ -155,7 +157,7 @@ export class WithdrawalService {
     amountToReceive: number;
   } {
     const companyFee = Math.round(amountRaised * COMPANY_FEE_RATE * 100) / 100;
-    const vatFee = Math.round(amountRaised * VAT_RATE * 100) / 100;
+    const vatFee = Math.round(companyFee * VAT_RATE * 100) / 100;
     const totalFees = companyFee + vatFee;
     const amountToReceive = amountRaised - totalFees;
 
@@ -248,7 +250,10 @@ export class WithdrawalService {
       }
 
       const existingWithdrawal = await prisma.withdrawal.findFirst({
-        where: { begId, status: { in: ['pending', 'processing', 'completed'] } },
+        where: {
+          begId,
+          status: { in: ['pending', 'processing', 'completed', 'on_hold'] },
+        },
       });
       if (existingWithdrawal) throw new Error('Withdrawal already requested for this beg');
 
@@ -267,29 +272,40 @@ export class WithdrawalService {
       const fees = this.calculateFees(amountRaised);
 
       // Create withdrawal record
-      const withdrawal = await prisma.withdrawal.create({
-        data: {
-          userId,
-          begId,
-          bankAccountId: bankAccount.id,
-          amountRequested: fees.amountRequested,
-          companyFee: fees.companyFee,
-          vatFee: fees.vatFee,
-          totalFees: fees.totalFees,
-          amountToReceive: fees.amountToReceive,
-          status: 'pending',
-        },
-        include: {
-          bankAccount: true,
-          beg: {
-            select: {
-              description: true,
-              amountRaised: true,
-              category: { select: { name: true, icon: true } },
+      let withdrawal: IWithdrawalRequestRelations;
+      try {
+        withdrawal = (await prisma.withdrawal.create({
+          data: {
+            userId,
+            begId,
+            bankAccountId: bankAccount.id,
+            amountRequested: fees.amountRequested,
+            companyFee: fees.companyFee,
+            vatFee: fees.vatFee,
+            totalFees: fees.totalFees,
+            amountToReceive: fees.amountToReceive,
+            status: 'pending',
+          },
+          include: {
+            bankAccount: true,
+            beg: {
+              select: {
+                description: true,
+                amountRaised: true,
+                category: { select: { name: true, icon: true } },
+              },
             },
           },
-        },
-      }) as IWithdrawalRequestRelations;
+        })) as IWithdrawalRequestRelations;
+      } catch (error: any) {
+        if (
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2002'
+        ) {
+          throw new Error('Withdrawal already requested for this beg');
+        }
+        throw error;
+      }
 
       logger.info('Withdrawal record created', {
         withdrawalId: withdrawal.id,

@@ -4,6 +4,7 @@ import { validateRequest } from '../../auth/middleware/auth/validateRequest';
 import { addReaction } from '../controllers/add-reaction.controller';
 import { getReactions } from '../controllers/get-reactions.controller';
 import { getAvailableEmojis } from '../controllers/get-emojis.controller';
+import { reactionLimiter } from '../../auth/middleware/auth/rateLimiter';
 import {
   addReactionValidation,
   getReactionsValidation,
@@ -27,6 +28,7 @@ router.get(
 router.post(
   '/',
   authenticate,
+  reactionLimiter,
   addReactionValidation,
   validateRequest,
   addReaction

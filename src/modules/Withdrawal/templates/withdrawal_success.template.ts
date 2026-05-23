@@ -267,11 +267,11 @@ export const withdrawalSuccessTemplate = (data: IWithdrawalSuccessEmail): string
         <span>- ₦${data.companyFee.toLocaleString()}</span>
       </div>
       <div class="fee-item">
-        <span>VAT (7.5%):</span>
+        <span>VAT (7.5% of fee):</span>
         <span>- ₦${data.vatFee.toLocaleString()}</span>
       </div>
       <div class="total-fees">
-        <span>Total Fees (12.5%):</span>
+        <span>Total Fees (5.375%):</span>
         <span>- ₦${data.totalFees.toLocaleString()}</span>
       </div>
       <div style="margin-top: 15px; padding-top: 15px; border-top: 2px solid #4CAF50;">

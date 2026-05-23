@@ -1,6 +1,10 @@
 import prisma from '../../../config/database';
 import { Prisma } from '@prisma/client';
 import logger from '../../../config/logger';
+import { kycRequireFaceLiveness } from '../../../config/env';
+import { AdminService } from '../../admin/services/admin.service';
+import { TrustScoreService } from '../../../services/trust_score.service';
+import { maskPhoneForLog } from '../../../utils/sanitize-log';
 import { PhoneVerificationService, type OTPChannel } from './phone-verification.service';
 import { DocumentVerificationService } from './document-verification.service';
 import { IdentityVerificationService } from './identity-verification.service';
@@ -310,9 +314,14 @@ export class KYCService {
       if (!verification) throw new Error('Please start KYC verification first.');
       if (!verification.phoneVerified) throw new Error('Please verify your phone number first.');
       if (!verification.documentVerified) throw new Error('Please upload your document first.');
+      const requiresLiveness =
+        verification.verificationType === 'passport' && kycRequireFaceLiveness();
       const readyToSubmit =
         verification.status === 'liveness_passed' ||
         (verification.verificationType === 'nin' &&
+          verification.status === 'document_uploaded') ||
+        (!requiresLiveness &&
+          verification.verificationType === 'passport' &&
           verification.status === 'document_uploaded');
 
       if (!readyToSubmit) {
@@ -322,7 +331,7 @@ export class KYCService {
         if (verification.isVerified || verification.status === 'verified') {
           throw new Error('You are already verified.');
         }
-        if (verification.verificationType === 'passport') {
+        if (verification.verificationType === 'passport' && requiresLiveness) {
           throw new Error('Please take a selfie before submitting your passport verification.');
         }
         throw new Error('Please upload your NIN document before submitting.');
@@ -489,7 +498,9 @@ export class KYCService {
     ]);
 
     return {
-      verifications: verifications.map(v => this.formatAdminResponse(v)),
+      verifications: await Promise.all(
+        verifications.map((v) => this.formatAdminResponse(v))
+      ),
       total,
       pages: Math.ceil(total / limit),
     };
@@ -572,7 +583,18 @@ export class KYCService {
       },
     });
 
+    await TrustScoreService.invalidateTrustScoreCache(userId);
+
     logger.info('User manually verified by admin', { userId, adminId });
+
+    await AdminService.logAction({
+      adminId,
+      actionType: 'kyc_manual_verify',
+      targetType: 'user',
+      targetId: userId,
+      description: `Manually verified KYC for user ${userId}`,
+      metadata: { note: note || null },
+    });
   }
 
   // ============================================
@@ -618,6 +640,15 @@ export class KYCService {
     });
 
     logger.warn('Verification rejected by admin', { userId, adminId, reason });
+
+    await AdminService.logAction({
+      adminId,
+      actionType: 'kyc_manual_reject',
+      targetType: 'user',
+      targetId: userId,
+      description: `Rejected KYC for user ${userId}`,
+      metadata: { reason },
+    });
   }
 
   // ============================================
@@ -686,7 +717,17 @@ export class KYCService {
           gender: profile.gender,
           phoneNumber: profile.phoneNumber,
         });
-      } else {
+      } else if (kycRequireFaceLiveness()) {
+        const faceBase64 = await KYCDocumentUploadService.downloadAsBase64(
+          verification.faceLivenessUrl
+        );
+        if (!faceBase64) {
+          logger.warn('Passport verification missing face image — kept under_review', {
+            userId,
+          });
+          return;
+        }
+
         result = await IdentityVerificationService.verifyPassport(
           verification.passportNumber,
           verification.passportExpiry?.toISOString() || '',
@@ -702,7 +743,18 @@ export class KYCService {
             passportIssueDate: verification.passportIssueDate?.toISOString() || '',
             passportPlaceOfIssue: verification.passportPlaceOfIssue,
           },
-          verification.faceLivenessUrl || ''
+          faceBase64
+        );
+      } else {
+        result = await IdentityVerificationService.verifyPassportBasic(
+          verification.passportNumber,
+          verification.passportExpiry?.toISOString() || '',
+          {
+            firstName: profile.firstName,
+            lastName: profile.lastName,
+            dateOfBirth: profile.dateOfBirth,
+            gender: profile.gender,
+          }
         );
       }
 
@@ -732,6 +784,8 @@ export class KYCService {
             data: { verificationType: verification.verificationType },
           },
         });
+
+        await TrustScoreService.invalidateTrustScoreCache(userId);
 
         logger.info('KYC verified successfully', { userId });
       } else {
@@ -816,7 +870,15 @@ export class KYCService {
   // FORMAT ADMIN RESPONSE
   // Includes document URLs + full details
   // ============================================
-  private static formatAdminResponse(verification: any) {
+  private static async formatAdminResponse(verification: any) {
+    const [ninFrontUrl, ninBackUrl, passportBiodataUrl, faceLivenessUrl] =
+      await Promise.all([
+        KYCDocumentUploadService.createSignedUrl(verification.ninFrontUrl),
+        KYCDocumentUploadService.createSignedUrl(verification.ninBackUrl),
+        KYCDocumentUploadService.createSignedUrl(verification.passportBiodataUrl),
+        KYCDocumentUploadService.createSignedUrl(verification.faceLivenessUrl),
+      ]);
+
     return {
       id: verification.id,
       userId: verification.userId,
@@ -827,7 +889,7 @@ export class KYCService {
             username: verification.user.username,
             firstName: verification.user.profile?.firstName,
             lastName: verification.user.profile?.lastName,
-            phoneNumber: verification.user.profile?.phoneNumber,
+            phoneNumber: maskPhoneForLog(verification.user.profile?.phoneNumber),
             dateOfBirth: verification.user.profile?.dateOfBirth,
             gender: verification.user.profile?.gender,
           }
@@ -839,7 +901,7 @@ export class KYCService {
       documentVerified: verification.documentVerified,
       faceLivenessPassed: verification.faceLivenessPassed,
       faceLivenessScore: verification.faceLivenessScore,
-      faceLivenessUrl: verification.faceLivenessUrl,
+      faceLivenessUrl,
 
       // NIN details — masked for security
       nin: verification.nin
@@ -850,8 +912,8 @@ export class KYCService {
       ninStateOfOrigin: verification.ninStateOfOrigin,
       ninLGA: verification.ninLGA,
       ninEnrollmentDate: verification.ninEnrollmentDate,
-      ninFrontUrl: verification.ninFrontUrl,
-      ninBackUrl: verification.ninBackUrl,
+      ninFrontUrl,
+      ninBackUrl,
       ninVerified: verification.ninVerified,
       ninVerifiedAt: verification.ninVerifiedAt,
 
@@ -864,7 +926,7 @@ export class KYCService {
       passportIssueDate: verification.passportIssueDate,
       passportExpiry: verification.passportExpiry,
       passportPlaceOfIssue: verification.passportPlaceOfIssue,
-      passportBiodataUrl: verification.passportBiodataUrl,
+      passportBiodataUrl,
       passportVerified: verification.passportVerified,
       passportVerifiedAt: verification.passportVerifiedAt,
 

@@ -24,7 +24,15 @@ export const createBeg = async (
 ): Promise<void> => {
   try {
     const userId = (req as any).user?.userId;
-    const { category, description, amountRequested, isAnonymous, mediaType, mediaUrl } = req.body; // ← title removed
+    const {
+      category,
+      description,
+      amountRequested,
+      expiryHours,
+      isAnonymous,
+      mediaType,
+      mediaUrl,
+    } = req.body; // ← title removed
 
     logger.info('Create beg request', {
       userId,
@@ -74,6 +82,7 @@ export const createBeg = async (
       categoryId,
       description: description ? description.trim() : null, // max 40 words / 300 chars
       amountRequested,
+      expiryHours,
       isAnonymous: Boolean(isAnonymous),
       mediaType,
       mediaUrl,
@@ -104,6 +113,7 @@ export const createBeg = async (
           isAnonymous: beg.isAnonymous,
           mediaType: beg.mediaType,
           mediaUrl: beg.mediaUrl,
+          expiryHours: beg.expiryHours,
           expiresAt: beg.expiresAt,
           createdAt: beg.createdAt,
         },
@@ -117,16 +127,20 @@ export const createBeg = async (
     });
 
     const statusCode =
-      error.message.includes('Description') ||
-      error.message.includes('cooldown') ||
-      error.message.includes('limit') ||
-      error.message.includes('tier')
-        ? 400
-        : 500;
+      typeof error.statusCode === 'number'
+        ? error.statusCode
+        : error.message.includes('Description') ||
+            error.message.includes('Invalid or inactive category') ||
+            error.message.includes('cooldown') ||
+            error.message.includes('limit') ||
+            error.message.includes('tier')
+          ? 400
+          : 500;
 
     sendResponse(res, statusCode, {
       success: false,
       message: error.message || 'Failed to create beg',
+      data: error.uiMessage ? { uiMessage: error.uiMessage } : undefined,
     });
   }
 };

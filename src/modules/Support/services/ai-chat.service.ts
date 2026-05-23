@@ -26,7 +26,7 @@ Key facts about Plz:
 - Trust tiers affect request amounts and frequency
 - To move to a higher trust tier, user must have donated once OR completed 2 successful begs
 - Donations are processed via Paystack
-- Withdrawals have a 12.5% total fee (5% company + 7.5% VAT)
+- Withdrawals have a 5.375% effective total fee (5% company/platform fee + 7.5% VAT on that fee)
 - Begs expire after 24h, 72h, or 7 days — user chooses
 - Begs can be extended before they expire
 - Users can react to begs and donations with emojis

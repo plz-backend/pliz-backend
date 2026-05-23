@@ -137,6 +137,7 @@ export class EmojiService {
           { emoji: '🥰', name: 'smiling face with hearts', category: 'Smileys & Emotion', subcategory: '' },
           { emoji: '😇', name: 'smiling face with halo', category: 'Smileys & Emotion', subcategory: '' },
           { emoji: '🤩', name: 'star-struck', category: 'Smileys & Emotion', subcategory: '' },
+          { emoji: '🥳', name: 'partying face', category: 'Smileys & Emotion', subcategory: '' },
         ],
       },
       {

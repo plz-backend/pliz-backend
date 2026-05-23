@@ -1,4 +1,5 @@
 import prisma from '../../../config/database';
+import { Prisma } from '@prisma/client';
 import redisClient from '../../../config/redis';
 import { TrustScoreService } from '../../../services/trust_score.service';
 import { DonorRankService } from './donor_rank.service';
@@ -279,17 +280,30 @@ export class DonationService {
       throw new Error('You cannot donate to your own beg');
     }
 
-    await prisma.donation.create({
-      data: {
-        begId: data.begId,
-        donorId: data.donorId,
-        amount: data.amount,
-        isAnonymous: data.isAnonymous,
-        paymentReference: data.paymentReference,
-        paymentMethod: data.paymentMethod,
-        status: 'pending',
-      },
-    });
+    try {
+      await prisma.donation.create({
+        data: {
+          begId: data.begId,
+          donorId: data.donorId,
+          amount: data.amount,
+          isAnonymous: data.isAnonymous,
+          paymentReference: data.paymentReference,
+          paymentMethod: data.paymentMethod,
+          status: 'pending',
+        },
+      });
+    } catch (error: any) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        logger.warn('Duplicate donation payment reference — processing existing', {
+          reference: data.paymentReference,
+        });
+      } else {
+        throw error;
+      }
+    }
 
     return await this.processDonation(data);
   }
@@ -514,6 +528,37 @@ export class DonationService {
       })),
       total,
       pages: Math.ceil(total / limit),
+    };
+  }
+
+  /**
+   * Total successful donations by a viewer to a specific beg (for request detail UI).
+   */
+  static async getViewerDonationSummary(
+    donorId: string,
+    begId: string
+  ): Promise<{
+    totalAmount: number;
+    donationCount: number;
+    lastDonatedAt: Date;
+  } | null> {
+    const donations = await prisma.donation.findMany({
+      where: { donorId, begId, status: 'success' },
+      select: { amount: true, createdAt: true },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (donations.length === 0) return null;
+
+    const totalAmount = donations.reduce(
+      (sum, d) => sum + parseFloat(d.amount.toString()),
+      0
+    );
+
+    return {
+      totalAmount,
+      donationCount: donations.length,
+      lastDonatedAt: donations[0].createdAt,
     };
   }
 

@@ -24,6 +24,7 @@ export class PaymentService {
     begId: string;
     donorId?: string;
     isAnonymous: boolean;
+    callbackUrl?: string;
   }): Promise<{
     success: boolean;
     authorizationUrl?: string;
@@ -31,14 +32,17 @@ export class PaymentService {
     error?: string;
   }> {
     try {
+      const callback_url =
+        data.callbackUrl?.trim() ||
+        `${process.env.FRONTEND_URL}/payment/callback`;
+
       const response = await axios.post(
         `${this.BASE_URL}/transaction/initialize`,
         {
           email: data.email,
           amount: Math.round(data.amount * 100), // Naira to kobo
           reference: data.reference,
-          // callback_url: `${process.env.BASE_URL}/api/donations/verify`,
-          callback_url: `${process.env.FRONTEND_URL}/payment/callback`,
+          callback_url,
           channels: ['card', 'bank', 'ussd', 'qr', 'mobile_money', 'bank_transfer'],
           metadata: {
             beg_id: data.begId,
