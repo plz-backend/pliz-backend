@@ -68,3 +68,6 @@ logs/
 # Misc
 coverage/
 .tmp/
+
+# scripts
+scripts/
