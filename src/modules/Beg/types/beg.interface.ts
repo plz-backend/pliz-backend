@@ -74,6 +74,8 @@ export interface IBegResponse {
   isAnonymous?: boolean;
   firstName?: string;
   lastName?: string;
+  /** Public avatar URL for the request owner; omitted when anonymous. */
+  ownerAvatarUrl?: string;
   description: string | null;
   expiryHours: ExpiryHours;
   category: {
@@ -194,6 +196,12 @@ export interface IBegWithRelations {
   };
   user: {
     username: string;
+    profileAvatar?: {
+      avatarType: string;
+      avatarUrl: string | null;
+      avatarColor: string | null;
+      avatarLibraryId: string | null;
+    } | null;
     profile: {
       displayName: string | null;
       isAnonymous: boolean;

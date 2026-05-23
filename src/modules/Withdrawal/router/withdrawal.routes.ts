@@ -71,7 +71,7 @@ router.get('/', authenticate, getWithdrawals);
 
 /**
  * @route   POST /api/withdrawals/request
- * @desc    Request withdrawal of funds from a funded beg
+ * @desc    Request withdrawal of raised funds from a funded or expired beg
  * @access  Private
  */
 router.post('/request', authenticate, checkAccountStatus, requestWithdrawal);

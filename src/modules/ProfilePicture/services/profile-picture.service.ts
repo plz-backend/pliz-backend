@@ -341,6 +341,41 @@ export class ProfilePictureService {
     };
   }
 
+  /**
+   * Display URL for beg listings — signed photo URLs, PNG avatars (RN-safe).
+   */
+  static async buildListingDisplayUrl(data: {
+    avatarType?: string | null;
+    avatarUrl?: string | null;
+    avatarColor?: string | null;
+    firstName?: string | null;
+    lastName?: string | null;
+  }): Promise<string> {
+    const avatarType = data.avatarType ?? 'initials';
+
+    if (avatarType === 'photo' && data.avatarUrl) {
+      return SupabaseStorageService.getDisplayUrl(data.avatarUrl);
+    }
+
+    if (avatarType === 'library' && data.avatarUrl) {
+      return this.toRasterDicebearUrl(data.avatarUrl);
+    }
+
+    const initials = this.getInitials(data.firstName, data.lastName);
+    const color = (data.avatarColor || '#FF5733').replace('#', '');
+    return `https://api.dicebear.com/7.x/initials/png?seed=${encodeURIComponent(initials)}&backgroundColor=${color}&size=128`;
+  }
+
+  private static toRasterDicebearUrl(url: string): string {
+    if (url.includes('/svg?')) {
+      return url.replace('/svg?', '/png?') + '&size=128';
+    }
+    if (url.endsWith('.svg')) {
+      return url.replace(/\.svg$/, '.png') + '?size=128';
+    }
+    return url;
+  }
+
   // ============================================
   // GET INITIALS FROM NAME
   // ============================================

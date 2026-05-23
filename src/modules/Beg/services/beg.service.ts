@@ -12,11 +12,32 @@ import {
 import { TrustScoreService } from '../../../services/trust_score.service';
 import { CooldownService } from '../../../services/cooldown.service';
 import { CategoryService } from './category.service';
+import { ProfilePictureService } from '../../ProfilePicture/services/profile-picture.service';
 import logger from '../../../config/logger';
 
 const MAX_DESCRIPTION_WORDS = 40;
 const MAX_DESCRIPTION_LENGTH = 300;
 const VALID_EXPIRY_HOURS = [24, 72, 168] as const;
+
+const BEG_USER_SELECT = {
+  username: true,
+  profileAvatar: {
+    select: {
+      avatarType: true,
+      avatarUrl: true,
+      avatarColor: true,
+      avatarLibraryId: true,
+    },
+  },
+  profile: {
+    select: {
+      displayName: true,
+      firstName: true,
+      lastName: true,
+      isAnonymous: true,
+    },
+  },
+} as const;
 
 /** Pending begs must not count down or hit the expiry cron; real `expiresAt` is set on admin approval. */
 const BEG_EXPIRY_PENDING_PLACEHOLDER = new Date('2099-12-31T23:59:59.999Z');
@@ -458,17 +479,7 @@ export class BegService {
         include: {
           category: true,
           user: {
-            select: {
-              username: true,
-              profile: {
-                select: {
-                  displayName: true,
-                  firstName: true,
-                  lastName: true,
-                  isAnonymous: true,
-                },
-              },
-            },
+            select: BEG_USER_SELECT,
           },
         },
       });
@@ -478,7 +489,7 @@ export class BegService {
         updatedFields: Object.keys(updateData),
       });
 
-      return this.transformBegResponse(updatedBeg as IBegWithRelations);
+      return await this.transformBegResponse(updatedBeg as IBegWithRelations);
     } catch (error: any) {
       logger.error('Failed to update beg', { error: error.message, begId });
       throw error;
@@ -511,17 +522,7 @@ export class BegService {
           include: {
             category: true,
             user: {
-              select: {
-                username: true,
-                profile: {
-                  select: {
-                    displayName: true,
-                    firstName: true,
-                    lastName: true,
-                    isAnonymous: true,
-                  },
-                },
-              },
+              select: BEG_USER_SELECT,
             },
           },
         }),
@@ -529,7 +530,9 @@ export class BegService {
       ]);
 
       return {
-        begs: begs.map((beg: any) => this.transformBegResponse(beg)),
+        begs: await Promise.all(
+          begs.map((beg: IBegWithRelations) => this.transformBegResponse(beg))
+        ),
         total,
         pages: Math.ceil(total / limit),
       };
@@ -549,23 +552,13 @@ export class BegService {
         include: {
           category: true,
           user: {
-            select: {
-              username: true,
-              profile: {
-                select: {
-                  displayName: true,
-                  firstName: true,
-                  lastName: true,
-                  isAnonymous: true,
-                },
-              },
-            },
+            select: BEG_USER_SELECT,
           },
         },
       });
 
       if (!beg) return null;
-      return this.transformBegResponse(beg as any);
+      return await this.transformBegResponse(beg as IBegWithRelations);
     } catch (error: any) {
       logger.error('Failed to get beg by ID', { error: error.message, begId });
       return null;
@@ -591,17 +584,7 @@ export class BegService {
           include: {
             category: true,
             user: {
-              select: {
-                username: true,
-                profile: {
-                  select: {
-                    displayName: true,
-                    firstName: true,
-                    lastName: true,
-                    isAnonymous: true,
-                  },
-                },
-              },
+              select: BEG_USER_SELECT,
             },
           },
         }),
@@ -609,7 +592,9 @@ export class BegService {
       ]);
 
       return {
-        begs: begs.map((beg: any) => this.transformBegResponse(beg)),
+        begs: await Promise.all(
+          begs.map((beg: IBegWithRelations) => this.transformBegResponse(beg))
+        ),
         total,
         pages: Math.ceil(total / limit),
       };
@@ -757,7 +742,9 @@ export class BegService {
   // ============================================
   // TRANSFORM BEG RESPONSE
   // ============================================
-  private static transformBegResponse(beg: IBegWithRelations): IBegResponse {
+  private static async transformBegResponse(
+    beg: IBegWithRelations
+  ): Promise<IBegResponse> {
     const now = new Date();
     const timeRemaining = !beg.approved
       ? 'Pending approval'
@@ -773,6 +760,16 @@ export class BegService {
     const firstNameRaw = beg.user?.profile?.firstName?.trim();
     const lastNameRaw = beg.user?.profile?.lastName?.trim();
 
+    const ownerAvatarUrl = isAnonymous
+      ? undefined
+      : await ProfilePictureService.buildListingDisplayUrl({
+          avatarType: beg.user?.profileAvatar?.avatarType,
+          avatarUrl: beg.user?.profileAvatar?.avatarUrl,
+          avatarColor: beg.user?.profileAvatar?.avatarColor,
+          firstName: firstNameRaw,
+          lastName: lastNameRaw,
+        });
+
     return {
       id: beg.id,
       userId: beg.userId,
@@ -783,6 +780,7 @@ export class BegService {
       isAnonymous,
       firstName: isAnonymous ? undefined : firstNameRaw || undefined,
       lastName: isAnonymous ? undefined : lastNameRaw || undefined,
+      ownerAvatarUrl,
       description: beg.description,
       expiryHours: beg.expiryHours as ExpiryHours,
       category: {

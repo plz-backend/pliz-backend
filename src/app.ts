@@ -11,6 +11,7 @@ import { errorLogger } from './logger/logger-middleware';
 import authRoutes from './modules/auth/routes/authRoutes';
 import sessionRoutes from './modules/auth/routes/session.routes';
 import profileRoutes from './modules/auth/routes/profile.routes';
+import usersRoutes from './modules/auth/routes/users.routes';
 import kycRoutes from './modules/KYC/routes/kyc.routes';
 import begRoutes from './modules/Beg/routers/beg.routers';
 import donorRoutes from './modules/Donor/router/donations.routes';
@@ -73,6 +74,7 @@ export const createApp = (): Express => {
   // ============================================
   app.use('/api/auth', authRoutes);
   app.use('/api/auth/profile', profileRoutes);
+  app.use('/api/users', usersRoutes);
   app.use('/api/kyc', kycRoutes);
   app.use('/api/sessions', sessionRoutes);
   app.use('/api/begs', begRoutes);

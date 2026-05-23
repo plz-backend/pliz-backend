@@ -109,6 +109,42 @@ export class WithdrawalService {
   private static BASE_URL = 'https://api.paystack.co';
 
   /**
+   * Withdrawals are allowed once a request is fully funded or its period has ended,
+   * as long as there are donations to cash out.
+   */
+  static isBegWithdrawable(beg: {
+    status: string;
+    expiresAt: Date;
+    amountRaised: Decimal | number | string;
+  }): { allowed: boolean; reason?: string } {
+    const amountRaised = parseFloat(beg.amountRaised.toString());
+    if (!Number.isFinite(amountRaised) || amountRaised <= 0) {
+      return { allowed: false, reason: 'No donations to withdraw for this request' };
+    }
+
+    if (['cancelled', 'rejected', 'flagged'].includes(beg.status)) {
+      return { allowed: false, reason: 'This request is not eligible for withdrawal' };
+    }
+
+    if (beg.status === 'funded') {
+      return { allowed: true };
+    }
+
+    const periodEnded =
+      beg.status === 'expired' || beg.expiresAt.getTime() <= Date.now();
+
+    if (periodEnded) {
+      return { allowed: true };
+    }
+
+    return {
+      allowed: false,
+      reason:
+        'Withdrawals are available once your request is fully funded or after it expires',
+    };
+  }
+
+  /**
    * Calculate withdrawal fees
    */
   static calculateFees(amountRaised: number): {
@@ -198,7 +234,18 @@ export class WithdrawalService {
 
       if (!beg) throw new Error('Beg not found');
       if (beg.userId !== userId) throw new Error('You can only withdraw from your own requests');
-      if (beg.status !== 'funded') throw new Error('Request must be fully funded to withdraw');
+
+      const withdrawable = this.isBegWithdrawable(beg);
+      if (!withdrawable.allowed) {
+        throw new Error(withdrawable.reason);
+      }
+
+      if (beg.status === 'active' && beg.expiresAt.getTime() <= Date.now()) {
+        await prisma.beg.update({
+          where: { id: begId },
+          data: { status: 'expired' },
+        });
+      }
 
       const existingWithdrawal = await prisma.withdrawal.findFirst({
         where: { begId, status: { in: ['pending', 'processing', 'completed'] } },
