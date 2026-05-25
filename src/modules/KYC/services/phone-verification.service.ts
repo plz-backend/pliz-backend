@@ -8,6 +8,34 @@ const OTP_RESEND_COOLDOWN_SECONDS = 60;
 
 export type OTPChannel = 'sms' | 'whatsapp';
 
+/** SendChamp expects E.164 digits without "+" (e.g. 2348012345678). */
+function formatPhoneForSendChamp(phoneNumber: string): string {
+  const digits = phoneNumber.replace(/\D/g, '');
+  if (!digits) {
+    throw new Error('Invalid phone number on profile. Update it in Personal Information.');
+  }
+  return digits;
+}
+
+function mapSendChampErrorMessage(raw: unknown, channel: OTPChannel): string {
+  const message =
+    typeof raw === 'string'
+      ? raw
+      : typeof raw === 'object' && raw !== null && 'message' in raw
+        ? String((raw as { message: unknown }).message)
+        : '';
+
+  if (/channel/i.test(message) && /oneof/i.test(message)) {
+    return 'SMS provider rejected the request. Please try again or contact support.';
+  }
+
+  if (message.trim()) {
+    return message;
+  }
+
+  return `Failed to send OTP via ${channel}. Please try again.`;
+}
+
 export class PhoneVerificationService {
 
   // ============================================
@@ -58,10 +86,7 @@ export class PhoneVerificationService {
       }
 
       // Send OTP via chosen channel
-      const reference = await this.sendViaSendChamp(
-        profile.phoneNumber,
-        channel === 'whatsapp' ? 'WHATSAPP' : 'SMS'
-      );
+      const reference = await this.sendViaSendChamp(profile.phoneNumber, channel);
 
       // Store reference + sent time + channel
       await prisma.userVerification.upsert({
@@ -174,10 +199,7 @@ export class PhoneVerificationService {
       }
 
       // Send OTP via chosen channel
-      const reference = await this.sendViaSendChamp(
-        profile.phoneNumber,
-        selectedChannel === 'whatsapp' ? 'WHATSAPP' : 'SMS'
-      );
+      const reference = await this.sendViaSendChamp(profile.phoneNumber, selectedChannel);
 
       await prisma.userVerification.upsert({
         where: { userId },
@@ -366,12 +388,14 @@ export class PhoneVerificationService {
   // ============================================
   private static async sendViaSendChamp(
     phoneNumber: string,
-    channel: 'SMS' | 'WHATSAPP'
+    channel: OTPChannel
   ): Promise<string> {
+    const mobile = formatPhoneForSendChamp(phoneNumber);
+
     // Dev mode — skip actual API call
     if (process.env.NODE_ENV === 'development') {
       logger.info('DEV MODE — OTP not sent', {
-        phone: maskPhoneForLog(phoneNumber),
+        phone: maskPhoneForLog(mobile),
         channel,
       });
       return `DEV_REF_${Date.now()}`;
@@ -379,19 +403,20 @@ export class PhoneVerificationService {
 
     try {
       const sender =
-        channel === 'WHATSAPP'
+        channel === 'whatsapp'
           ? process.env.SENDCHAMP_WHATSAPP_SENDER!
           : process.env.SENDCHAMP_SMS_SENDER || 'Plz';
 
       const response = await axios.post(
         'https://api.sendchamp.com/api/v1/verification/create',
         {
+          // SendChamp API expects lowercase: sms | whatsapp | voice | email
           channel,
           sender,
           token_length: 6,
           token_type: 'numeric',
           expiration_time: OTP_EXPIRY_MINUTES,
-          customer_mobile_number: phoneNumber,
+          customer_mobile_number: mobile,
           success_message: `Your Plz verification code is {otp}. Valid for ${OTP_EXPIRY_MINUTES} minutes. Do not share this code with anyone.`,
           failure_message: 'OTP verification failed. Please try again.',
           meta_data: {},
@@ -415,17 +440,17 @@ export class PhoneVerificationService {
         );
       }
 
-      logger.info(`OTP sent via ${channel}`, { phone: maskPhoneForLog(phoneNumber) });
+      logger.info(`OTP sent via ${channel}`, { phone: maskPhoneForLog(mobile) });
 
       return response.data.data.reference as string;
     } catch (error: any) {
       logger.error(`SendChamp ${channel} send failed`, {
         error: error.message,
-        phone: maskPhoneForLog(phoneNumber),
+        response: error.response?.data,
+        phone: maskPhoneForLog(mobile),
       });
       throw new Error(
-        error.response?.data?.message ||
-          `Failed to send OTP via ${channel}. Please try again.`
+        mapSendChampErrorMessage(error.response?.data?.message ?? error.message, channel)
       );
     }
   }
