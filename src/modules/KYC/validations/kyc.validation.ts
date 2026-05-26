@@ -2,14 +2,9 @@ import { body } from 'express-validator';
 
 
 // ============================================
-// SEND OTP — channel is optional, defaults sms
+// SEND OTP
 // ============================================
-export const sendOTPValidation = [
-  body('channel')
-    .optional()
-    .isIn(['sms', 'whatsapp'])
-    .withMessage('Channel must be sms or whatsapp'),
-];
+export const sendOTPValidation: ReturnType<typeof body>[] = [];
 
 export const verifyOTPValidation = [
   body('otp')

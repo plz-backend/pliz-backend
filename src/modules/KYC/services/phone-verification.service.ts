@@ -1,12 +1,14 @@
+import crypto from 'crypto';
 import prisma from '../../../config/database';
 import axios from 'axios';
 import logger from '../../../config/logger';
 import { maskPhoneForLog } from '../../../utils/sanitize-log';
+import { CacheService } from '../../auth/services/cacheService';
 
 const OTP_EXPIRY_MINUTES = 10;
 const OTP_RESEND_COOLDOWN_SECONDS = 60;
-
-export type OTPChannel = 'sms' | 'whatsapp';
+const OTP_EXPIRY_SECONDS = OTP_EXPIRY_MINUTES * 60;
+const PHONE_OTP_MARKER = 'SMS';
 
 /** SendChamp expects E.164 digits without "+" (e.g. 2348012345678). */
 function formatPhoneForSendChamp(phoneNumber: string): string {
@@ -17,7 +19,7 @@ function formatPhoneForSendChamp(phoneNumber: string): string {
   return digits;
 }
 
-function mapSendChampErrorMessage(raw: unknown, channel: OTPChannel): string {
+function mapSendChampErrorMessage(raw: unknown): string {
   const message =
     typeof raw === 'string'
       ? raw
@@ -25,10 +27,6 @@ function mapSendChampErrorMessage(raw: unknown, channel: OTPChannel): string {
         ? String((raw as { message: unknown }).message)
         : '';
   const normalized = message.trim().toLowerCase();
-
-  if (/channel/i.test(message) && /oneof/i.test(message)) {
-    return 'We could not send your verification code right now. Please try again later.';
-  }
 
   if (
     normalized.includes('low balance') ||
@@ -47,38 +45,12 @@ function mapSendChampErrorMessage(raw: unknown, channel: OTPChannel): string {
     return message;
   }
 
-  return `Failed to send OTP via ${channel}. Please try again.`;
+  return 'Failed to send SMS. Please try again.';
 }
 
 export class PhoneVerificationService {
-
-  // ============================================
-  // SEND PHONE OTP
-  // User picks channel: sms | whatsapp
-  // ============================================
-  static async sendPhoneOTP(
-    userId: string,
-    channel: OTPChannel = 'sms'
-  ): Promise<{
-    channel: OTPChannel;
-    phoneNumber: string;
-  }> {
+  static async sendPhoneOTP(userId: string): Promise<{ phoneNumber: string }> {
     try {
-      // Validate channel
-      if (!['sms', 'whatsapp'].includes(channel)) {
-        throw new Error('Invalid channel. Must be sms or whatsapp.');
-      }
-
-      // Check WhatsApp is configured before allowing
-      if (
-        channel === 'whatsapp' &&
-        !process.env.SENDCHAMP_WHATSAPP_SENDER
-      ) {
-        throw new Error(
-          'WhatsApp verification is not available at the moment. Please use SMS.'
-        );
-      }
-
       const profile = await prisma.userProfile.findUnique({
         where: { userId },
         select: { phoneNumber: true },
@@ -99,35 +71,31 @@ export class PhoneVerificationService {
         throw new Error('Phone number is already verified.');
       }
 
-      // Send OTP via chosen channel
-      const reference = await this.sendViaSendChamp(profile.phoneNumber, channel);
+      await this.sendSmsOtp(userId, profile.phoneNumber);
 
-      // Store reference + sent time + channel
       await prisma.userVerification.upsert({
         where: { userId },
         create: {
           userId,
-          phoneOtp: reference,
+          phoneOtp: PHONE_OTP_MARKER,
           phoneOtpSentAt: new Date(),
-          phoneVerificationChannel: channel,
+          phoneVerificationChannel: 'sms',
           status: 'pending',
           attemptCount: 0,
         },
         update: {
-          phoneOtp: reference,
+          phoneOtp: PHONE_OTP_MARKER,
           phoneOtpSentAt: new Date(),
-          phoneVerificationChannel: channel,
+          phoneVerificationChannel: 'sms',
         },
       });
 
       logger.info('Phone OTP sent', {
         userId,
-        channel,
         phone: maskPhoneForLog(profile.phoneNumber),
       });
 
       return {
-        channel,
         phoneNumber: this.maskPhoneNumber(profile.phoneNumber),
       };
     } catch (error: any) {
@@ -139,18 +107,7 @@ export class PhoneVerificationService {
     }
   }
 
-  // ============================================
-  // RESEND PHONE OTP
-  // User can switch channel on resend
-  // e.g. tried SMS → switch to WhatsApp
-  // ============================================
-  static async resendPhoneOTP(
-    userId: string,
-    channel?: OTPChannel
-  ): Promise<{
-    channel: OTPChannel;
-    phoneNumber: string;
-  }> {
+  static async resendPhoneOTP(userId: string): Promise<{ phoneNumber: string }> {
     try {
       const [profile, verification] = await Promise.all([
         prisma.userProfile.findUnique({
@@ -162,7 +119,6 @@ export class PhoneVerificationService {
           select: {
             phoneVerified: true,
             phoneOtpSentAt: true,
-            phoneVerificationChannel: true,
           },
         }),
       ]);
@@ -176,7 +132,6 @@ export class PhoneVerificationService {
         throw new Error('Phone number is already verified.');
       }
 
-      // Enforce cooldown
       if (verification?.phoneOtpSentAt) {
         const secondsSinceSent =
           (Date.now() - new Date(verification.phoneOtpSentAt).getTime()) / 1000;
@@ -191,51 +146,28 @@ export class PhoneVerificationService {
         }
       }
 
-      // Use new channel if provided — otherwise use same channel as before
-      const selectedChannel: OTPChannel =
-        channel ||
-        (verification?.phoneVerificationChannel as OTPChannel) ||
-        'sms';
-
-      // Validate channel
-      if (!['sms', 'whatsapp'].includes(selectedChannel)) {
-        throw new Error('Invalid channel. Must be sms or whatsapp.');
-      }
-
-      // Check WhatsApp is configured
-      if (
-        selectedChannel === 'whatsapp' &&
-        !process.env.SENDCHAMP_WHATSAPP_SENDER
-      ) {
-        throw new Error(
-          'WhatsApp verification is not available at the moment. Please use SMS.'
-        );
-      }
-
-      // Send OTP via chosen channel
-      const reference = await this.sendViaSendChamp(profile.phoneNumber, selectedChannel);
+      await this.sendSmsOtp(userId, profile.phoneNumber);
 
       await prisma.userVerification.upsert({
         where: { userId },
         create: {
           userId,
-          phoneOtp: reference,
+          phoneOtp: PHONE_OTP_MARKER,
           phoneOtpSentAt: new Date(),
-          phoneVerificationChannel: selectedChannel,
+          phoneVerificationChannel: 'sms',
           status: 'pending',
           attemptCount: 0,
         },
         update: {
-          phoneOtp: reference,
+          phoneOtp: PHONE_OTP_MARKER,
           phoneOtpSentAt: new Date(),
-          phoneVerificationChannel: selectedChannel,
+          phoneVerificationChannel: 'sms',
         },
       });
 
-      logger.info('Phone OTP resent', { userId, channel: selectedChannel });
+      logger.info('Phone OTP resent', { userId });
 
       return {
-        channel: selectedChannel,
         phoneNumber: this.maskPhoneNumber(profile.phoneNumber),
       };
     } catch (error: any) {
@@ -247,9 +179,6 @@ export class PhoneVerificationService {
     }
   }
 
-  // ============================================
-  // VERIFY PHONE OTP
-  // ============================================
   static async verifyPhoneOTP(userId: string, otp: string): Promise<void> {
     try {
       const verification = await prisma.userVerification.findUnique({
@@ -271,7 +200,6 @@ export class PhoneVerificationService {
         throw new Error('No OTP found. Please request a new OTP.');
       }
 
-      // Check expiry — 10 minutes from sent time
       const sentAt = new Date(verification.phoneOtpSentAt);
       const expiresAt = new Date(sentAt);
       expiresAt.setMinutes(expiresAt.getMinutes() + OTP_EXPIRY_MINUTES);
@@ -280,10 +208,19 @@ export class PhoneVerificationService {
         throw new Error('OTP has expired. Please request a new one.');
       }
 
-      // Confirm via SendChamp
-      await this.confirmOTPWithSendChamp(verification.phoneOtp, otp);
+      if (this.shouldSkipSendChamp()) {
+        if (!/^\d{6}$/.test(otp)) {
+          throw new Error('Invalid OTP. Must be 6 digits.');
+        }
+      } else {
+        const valid = await CacheService.verifyPhoneOtpCode(userId, otp);
+        if (!valid) {
+          throw new Error('Invalid OTP. Please check and try again.');
+        }
+      }
 
-      // Mark as verified
+      await CacheService.deletePhoneOtpCode(userId);
+
       await prisma.userVerification.update({
         where: { userId },
         data: {
@@ -314,44 +251,12 @@ export class PhoneVerificationService {
     }
   }
 
-  // ============================================
-  // GET AVAILABLE CHANNELS
-  // Frontend uses this to show options
-  // ============================================
-  static getAvailableChannels(): {
-    channels: { value: OTPChannel; label: string; available: boolean }[];
-  } {
-    return {
-      channels: [
-        {
-          value: 'sms',
-          label: 'SMS',
-          available: true,            // SMS always available
-        },
-        {
-          value: 'whatsapp',
-          label: 'WhatsApp',
-          available: !!process.env.SENDCHAMP_WHATSAPP_SENDER, // only if configured
-        },
-      ],
-    };
-  }
-
-  // ============================================
-  // GET PHONE VERIFICATION STATUS
-  // ============================================
   static async getPhoneVerificationStatus(userId: string): Promise<{
     phoneVerified: boolean;
     phoneNumber: string | null;
     maskedPhoneNumber: string | null;
-    channel: string | null;
     canResend: boolean;
     secondsUntilResend: number;
-    availableChannels: {
-      value: OTPChannel;
-      label: string;
-      available: boolean;
-    }[];
   }> {
     const [profile, verification] = await Promise.all([
       prisma.userProfile.findUnique({
@@ -363,7 +268,6 @@ export class PhoneVerificationService {
         select: {
           phoneVerified: true,
           phoneOtpSentAt: true,
-          phoneVerificationChannel: true,
         },
       }),
     ]);
@@ -389,109 +293,56 @@ export class PhoneVerificationService {
       maskedPhoneNumber: profile?.phoneNumber
         ? this.maskPhoneNumber(profile.phoneNumber)
         : null,
-      channel: verification?.phoneVerificationChannel || null,
       canResend,
       secondsUntilResend,
-      availableChannels: this.getAvailableChannels().channels,
     };
   }
 
-  // ============================================
-  // SENDCHAMP — SEND OTP
-  // POST /api/v1/verification/create
-  // ============================================
-  private static async sendViaSendChamp(
-    phoneNumber: string,
-    channel: OTPChannel
-  ): Promise<string> {
-    const mobile = formatPhoneForSendChamp(phoneNumber);
-
-    // Dev mode — skip actual API call
-    if (process.env.NODE_ENV === 'development') {
-      logger.info('DEV MODE — OTP not sent', {
-        phone: maskPhoneForLog(mobile),
-        channel,
-      });
-      return `DEV_REF_${Date.now()}`;
-    }
-
-    try {
-      const sender =
-        channel === 'whatsapp'
-          ? process.env.SENDCHAMP_WHATSAPP_SENDER!
-          : process.env.SENDCHAMP_SMS_SENDER || 'Plz';
-
-      const response = await axios.post(
-        'https://api.sendchamp.com/api/v1/verification/create',
-        {
-          // SendChamp API expects lowercase: sms | whatsapp | voice | email
-          channel,
-          sender,
-          token_length: 6,
-          token_type: 'numeric',
-          expiration_time: OTP_EXPIRY_MINUTES,
-          customer_mobile_number: mobile,
-          success_message: `Your Plz verification code is {otp}. Valid for ${OTP_EXPIRY_MINUTES} minutes. Do not share this code with anyone.`,
-          failure_message: 'OTP verification failed. Please try again.',
-          meta_data: {},
-        },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${process.env.SENDCHAMP_API_KEY}`,
-            Accept: 'application/json',
-          },
-          timeout: 15000,
-        }
-      );
-
-      if (
-        response.data?.status !== 'success' ||
-        !response.data?.data?.reference
-      ) {
-        throw new Error(
-          response.data?.message || `Failed to send OTP via ${channel}`
-        );
-      }
-
-      logger.info(`OTP sent via ${channel}`, { phone: maskPhoneForLog(mobile) });
-
-      return response.data.data.reference as string;
-    } catch (error: any) {
-      logger.error(`SendChamp ${channel} send failed`, {
-        error: error.message,
-        response: error.response?.data,
-        phone: maskPhoneForLog(mobile),
-      });
-      throw new Error(
-        mapSendChampErrorMessage(error.response?.data?.message ?? error.message, channel)
-      );
-    }
+  private static shouldSkipSendChamp(): boolean {
+    return (
+      process.env.SENDCHAMP_SKIP_VERIFICATION === 'true' ||
+      process.env.NODE_ENV === 'development'
+    );
   }
 
-  // ============================================
-  // SENDCHAMP — CONFIRM OTP
-  // POST /api/v1/verification/confirm
-  // ============================================
-  private static async confirmOTPWithSendChamp(
-    reference: string,
-    otp: string
-  ): Promise<void> {
-    // Dev mode — accept any 6-digit OTP
-    if (process.env.NODE_ENV === 'development') {
-      logger.info('DEV MODE — OTP confirmation skipped');
-      if (!/^\d{6}$/.test(otp)) {
-        throw new Error('Invalid OTP. Must be 6 digits.');
-      }
+  private static generateNumericOtp(length: number): string {
+    const min = 10 ** (length - 1);
+    const max = 10 ** length - 1;
+    return String(crypto.randomInt(min, max + 1));
+  }
+
+  private static async sendSmsOtp(userId: string, phoneNumber: string): Promise<void> {
+    const mobile = formatPhoneForSendChamp(phoneNumber);
+    const otp = this.generateNumericOtp(6);
+
+    await CacheService.storePhoneOtpCode(userId, otp, OTP_EXPIRY_SECONDS);
+
+    if (this.shouldSkipSendChamp()) {
+      logger.info('SendChamp skip enabled — SMS not sent', {
+        phone: maskPhoneForLog(mobile),
+      });
       return;
     }
 
+    if (!process.env.SENDCHAMP_API_KEY?.trim()) {
+      await CacheService.deletePhoneOtpCode(userId);
+      throw new Error(
+        'We could not send your verification code right now. Please try again later.'
+      );
+    }
+
+    const sender = process.env.SENDCHAMP_SMS_SENDER?.trim() || 'Sendchamp';
+    const route = process.env.SENDCHAMP_SMS_ROUTE?.trim() || 'dnd';
+    const message = `Your Plz verification code is ${otp}. Valid for ${OTP_EXPIRY_MINUTES} minutes. Do not share this code.`;
+
     try {
       const response = await axios.post(
-        'https://api.sendchamp.com/api/v1/verification/confirm',
+        'https://api.sendchamp.com/api/v1/sms/send',
         {
-          verification_reference: reference,
-          verification_otp: otp,
+          to: [mobile],
+          message,
+          sender_name: sender,
+          route,
         },
         {
           headers: {
@@ -504,27 +355,30 @@ export class PhoneVerificationService {
       );
 
       if (response.data?.status !== 'success') {
-        throw new Error(
-          response.data?.message || 'Invalid OTP. Please check and try again.'
-        );
+        throw new Error(response.data?.message || 'Failed to send SMS');
       }
 
-      logger.info('OTP confirmed via SendChamp');
-    } catch (error: any) {
-      logger.error('SendChamp OTP confirmation failed', {
-        error: error.message,
+      logger.info('OTP SMS sent via SendChamp', {
+        phone: maskPhoneForLog(mobile),
+        sender,
+        route,
+        smsId: response.data?.data?.id,
       });
-      if (error.response?.data?.message) {
-        throw new Error(error.response.data.message);
-      }
-      throw new Error('Invalid OTP. Please check and try again.');
+    } catch (error: any) {
+      await CacheService.deletePhoneOtpCode(userId);
+      logger.error('SendChamp SMS send failed', {
+        error: error.message,
+        response: error.response?.data,
+        phone: maskPhoneForLog(mobile),
+        sender,
+        route,
+      });
+      throw new Error(
+        mapSendChampErrorMessage(error.response?.data?.message ?? error.message)
+      );
     }
   }
 
-  // ============================================
-  // MASK PHONE NUMBER
-  // e.g. +2348012345678 → +234801****678
-  // ============================================
   static maskPhoneNumber(phoneNumber: string): string {
     if (phoneNumber.length < 7) return phoneNumber;
     const start = phoneNumber.slice(0, 7);

@@ -5,7 +5,7 @@ import { kycRequireFaceLiveness } from '../../../config/env';
 import { AdminService } from '../../admin/services/admin.service';
 import { TrustScoreService } from '../../../services/trust_score.service';
 import { maskPhoneForLog } from '../../../utils/sanitize-log';
-import { PhoneVerificationService, type OTPChannel } from './phone-verification.service';
+import { PhoneVerificationService } from './phone-verification.service';
 import { DocumentVerificationService } from './document-verification.service';
 import { IdentityVerificationService } from './identity-verification.service';
 import { KYCDocumentUploadService } from './document-upload.service';
@@ -114,17 +114,11 @@ export class KYCService {
   // PHONE VERIFICATION
   // Delegated to PhoneVerificationService
   // ============================================
-  static async sendPhoneOTP(userId: string): Promise<{
-    channel: OTPChannel;
-    phoneNumber: string;
-  }> {
+  static async sendPhoneOTP(userId: string): Promise<{ phoneNumber: string }> {
     return PhoneVerificationService.sendPhoneOTP(userId);
   }
 
-  static async resendPhoneOTP(userId: string): Promise<{
-    channel: OTPChannel;
-    phoneNumber: string;
-  }> {
+  static async resendPhoneOTP(userId: string): Promise<{ phoneNumber: string }> {
     return PhoneVerificationService.resendPhoneOTP(userId);
   }
 
