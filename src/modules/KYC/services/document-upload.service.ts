@@ -121,13 +121,6 @@ export class KYCDocumentUploadService {
   }
 
   // ============================================
-  // CONVERT TO BASE64 FOR PREMBLY
-  // ============================================
-  static toBase64(fileBuffer: Buffer): string {
-    return fileBuffer.toString('base64');
-  }
-
-  // ============================================
   // DELETE ALL DOCUMENTS FOR USER
   // ============================================
   static async deleteDocuments(userId: string): Promise<void> {

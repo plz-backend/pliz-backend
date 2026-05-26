@@ -29,9 +29,15 @@ const kycBodyValidation = [
   body('nin')
     .if(body('verificationType').equals('nin'))
     .notEmpty()
-    .withMessage('NIN is required')
-    .matches(/^\d{11}$/)
-    .withMessage('NIN must be exactly 11 digits'),
+    .withMessage('NIN or Virtual NIN is required')
+    .custom((value) => {
+      const trimmed = String(value).trim();
+      if (/^\d{11}$/.test(trimmed.replace(/\D/g, ''))) return true;
+      if (/^[A-Za-z0-9]{16}$/.test(trimmed.replace(/\s/g, ''))) return true;
+      throw new Error(
+        'Enter a valid 11-digit NIN or 16-character Virtual NIN (vNIN)'
+      );
+    }),
 
   body('ninDocumentType')
     .if(body('verificationType').equals('nin'))

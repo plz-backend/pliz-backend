@@ -17,8 +17,9 @@ const shouldSkipPrembly = () =>
 export class IdentityVerificationService {
 
   // ============================================
-  // VERIFY NIN — Prembly v2 (NIN Level 2)
-  // https://docs.prembly.com/reference/nin-basic
+  // VERIFY NIN — Prembly vNIN (NIN Advance)
+  // https://docs.prembly.com/reference/nin-and-virtual-nin
+  // Accepts 11-digit NIN (number_nin) or 16-char Virtual NIN (number).
   // ============================================
   static async verifyNIN(
     nin: string,
@@ -30,29 +31,31 @@ export class IdentityVerificationService {
       phoneNumber: string | null;
     }
   ): Promise<IPremblyVerificationResult> {
-    const normalizedNin = nin.replace(/\D/g, '');
+    const request = this.buildVninRequest(nin);
+    if ('error' in request) {
+      return {
+        verified: false,
+        reference: nin.trim(),
+        error: request.error,
+      };
+    }
+
+    const { body, reference, kind } = request;
 
     try {
-      if (!/^\d{11}$/.test(normalizedNin)) {
-        return {
-          verified: false,
-          reference: normalizedNin,
-          error: 'Please enter a valid 11-digit NIN.',
-        };
-      }
-
       if (shouldSkipPrembly()) {
         logger.info('PREMBLY_SKIP_VERIFICATION — NIN verification skipped');
-        return { verified: true, reference: normalizedNin };
+        return { verified: true, reference };
       }
 
-      logger.info('Calling Prembly NIN Level 2 API', {
-        nin: normalizedNin.substring(0, 4) + '*******',
+      logger.info('Calling Prembly vNIN API', {
+        kind,
+        identifier: kind === 'nin' ? reference.substring(0, 4) + '*******' : reference.substring(0, 4) + '************',
       });
 
       const response = await axios.post(
-        `${PREMBLY_BASE_URL}/verification/nin-level-2`,
-        { number: normalizedNin },
+        `${PREMBLY_BASE_URL}/verification/vnin`,
+        body,
         { headers: getHeaders(), timeout: 30000 }
       );
 
@@ -63,17 +66,17 @@ export class IdentityVerificationService {
       if (!isSuccess) {
         return {
           verified: false,
-          reference: normalizedNin,
+          reference,
           error:
             result.detail ||
             result.message ||
-            'NIN verification failed. Please check your NIN and try again.',
+            'NIN verification failed. Please check your NIN or vNIN and try again.',
         };
       }
 
       const ninData = result.nin_data || result.data || {};
       const providerReference =
-        result.verification?.reference?.toString() || normalizedNin;
+        result.verification?.reference?.toString() || reference;
 
       const firstNameMatch = this.nameMatch(
         ninData.firstname || ninData.first_name || '',
@@ -94,9 +97,10 @@ export class IdentityVerificationService {
         };
       }
 
-      logger.info('NIN verified successfully', {
+      logger.info('NIN verified successfully via vNIN API', {
         providerReference,
         responseCode: result.response_code,
+        kind,
       });
       return {
         verified: true,
@@ -104,20 +108,50 @@ export class IdentityVerificationService {
         data: ninData,
       };
     } catch (error: any) {
-      logger.error('NIN API failed', {
+      logger.error('Prembly vNIN API failed', {
         error: error.message,
         status: error.response?.status,
         detail: error.response?.data?.detail,
       });
       return {
         verified: false,
-        reference: normalizedNin,
+        reference,
         error:
           error.response?.data?.detail ||
           error.response?.data?.message ||
           'NIN verification failed. Please try again later.',
       };
     }
+  }
+
+  private static buildVninRequest(input: string):
+    | { body: { number_nin: string }; reference: string; kind: 'nin' }
+    | { body: { number: string }; reference: string; kind: 'vnin' }
+    | { error: string } {
+    const trimmed = input.trim();
+    const digitsOnly = trimmed.replace(/\D/g, '');
+
+    if (/^\d{11}$/.test(digitsOnly)) {
+      return {
+        body: { number_nin: digitsOnly },
+        reference: digitsOnly,
+        kind: 'nin',
+      };
+    }
+
+    const vnin = trimmed.replace(/\s/g, '').toUpperCase();
+    if (/^[A-Z0-9]{16}$/.test(vnin)) {
+      return {
+        body: { number: vnin },
+        reference: vnin,
+        kind: 'vnin',
+      };
+    }
+
+    return {
+      error:
+        'Please enter a valid 11-digit NIN or 16-character Virtual NIN (vNIN) from the NIMC app.',
+    };
   }
 
   // VERIFY PASSPORT (basic — no face match)

@@ -427,7 +427,7 @@ model UserVerification {
   // slip = front only
   // card = front + back
   // ============================================
-  nin                  String?   @map("nin") @db.VarChar(11)
+  nin                  String?   @map("nin") @db.VarChar(20)
   ninDocumentType      String?   @map("nin_document_type") @db.VarChar(10)
   ninMiddleName        String?   @map("nin_middle_name") @db.VarChar(100)
   ninStateOfOrigin     String?   @map("nin_state_of_origin") @db.VarChar(100)
