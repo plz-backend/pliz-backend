@@ -6,7 +6,6 @@ import { AdminService } from '../../admin/services/admin.service';
 import { TrustScoreService } from '../../../services/trust_score.service';
 import { maskPhoneForLog } from '../../../utils/sanitize-log';
 import { PhoneVerificationService } from './phone-verification.service';
-import { DocumentVerificationService } from './document-verification.service';
 import { IdentityVerificationService } from './identity-verification.service';
 import { KYCDocumentUploadService } from './document-upload.service';
 import {
@@ -17,6 +16,19 @@ import {
 } from '../types/kyc.interface';
 
 const MAX_ATTEMPTS = 3;
+
+function isValidNinOrVnin(value: string): boolean {
+  const trimmed = value.trim();
+  if (/^\d{11}$/.test(trimmed.replace(/\D/g, ''))) return true;
+  return /^[A-Za-z0-9]{16}$/.test(trimmed.replace(/\s/g, ''));
+}
+
+function normalizeNinOrVnin(value: string): string {
+  const trimmed = value.trim();
+  const digits = trimmed.replace(/\D/g, '');
+  if (/^\d{11}$/.test(digits)) return digits;
+  return trimmed.replace(/\s/g, '').toUpperCase();
+}
 
 /** UI step — face is done once status has moved past document upload verification. */
 const FACE_LIVENESS_STEP_DONE_STATUSES = new Set<string>([
@@ -128,7 +140,8 @@ export class KYCService {
 
   // ============================================
   // UPLOAD DOCUMENT
-  // Step 3 — fill form + upload + check authenticity
+  // Step 3 — validate fields, store image, save metadata
+  // Identity is verified at submit via IdentityVerificationService
   // ============================================
   static async uploadDocument(
     userId: string,
@@ -156,9 +169,12 @@ export class KYCService {
 
       // ── VALIDATE NIN FIELDS ──────────────────
       if (data.verificationType === 'nin') {
-        if (!data.nin || !/^\d{11}$/.test(data.nin)) {
-          throw new Error('NIN must be exactly 11 digits.');
+        if (!data.nin || !isValidNinOrVnin(data.nin)) {
+          throw new Error(
+            'Enter a valid 11-digit NIN or 16-character Virtual NIN (vNIN) from the NIMC app.'
+          );
         }
+        data.nin = normalizeNinOrVnin(data.nin);
         if (!data.ninDocumentType || !['slip', 'card'].includes(data.ninDocumentType)) {
           throw new Error('Please select NIN document type (slip or card).');
         }
@@ -180,27 +196,6 @@ export class KYCService {
         }
       } else {
         throw new Error('verificationType must be nin or passport.');
-      }
-
-      // ── CHECK DOCUMENT AUTHENTICITY ──────────
-      const imageBase64 = KYCDocumentUploadService.toBase64(fileBuffer);
-
-      let docCheck: { valid: boolean; error?: string };
-
-      if (data.verificationType === 'nin') {
-        docCheck = await DocumentVerificationService.verifyNINDocument(
-          imageBase64,
-          data.ninDocumentType as 'slip' | 'card'
-        );
-      } else {
-        docCheck = await DocumentVerificationService.verifyPassportDocument(imageBase64);
-      }
-
-      if (!docCheck.valid) {
-        throw new Error(
-          docCheck.error ||
-          'Document could not be verified. Please upload a clearer photo.'
-        );
       }
 
       // ── UPLOAD TO SUPABASE ────────────────────
@@ -266,7 +261,7 @@ export class KYCService {
         update: updateData,
       });
 
-      logger.info('Document uploaded and verified', {
+      logger.info('Document uploaded', {
         userId,
         documentType: data.documentType,
         verificationType: data.verificationType,

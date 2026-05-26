@@ -87,13 +87,6 @@ export interface IProviderVerificationResult {
   error?: string;
 }
 
-export interface IDocumentVerificationResult {
-  valid: boolean;
-  extractedNumber?: string;
-  extractedName?: string;
-  error?: string;
-}
-
 export interface IPremblyVerificationResult {
   verified: boolean;
   reference: string;
