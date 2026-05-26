@@ -1,14 +1,10 @@
-import crypto from 'crypto';
 import prisma from '../../../config/database';
 import axios from 'axios';
 import logger from '../../../config/logger';
 import { maskPhoneForLog } from '../../../utils/sanitize-log';
-import { CacheService } from '../../auth/services/cacheService';
 
 const OTP_EXPIRY_MINUTES = 10;
 const OTP_RESEND_COOLDOWN_SECONDS = 60;
-const OTP_EXPIRY_SECONDS = OTP_EXPIRY_MINUTES * 60;
-const PHONE_OTP_MARKER = 'SMS';
 
 /** SendChamp expects E.164 digits without "+" (e.g. 2348012345678). */
 function formatPhoneForSendChamp(phoneNumber: string): string {
@@ -45,7 +41,7 @@ function mapSendChampErrorMessage(raw: unknown): string {
     return message;
   }
 
-  return 'Failed to send SMS. Please try again.';
+  return 'Failed to send OTP. Please try again.';
 }
 
 export class PhoneVerificationService {
@@ -71,20 +67,20 @@ export class PhoneVerificationService {
         throw new Error('Phone number is already verified.');
       }
 
-      await this.sendSmsOtp(userId, profile.phoneNumber);
+      const reference = await this.createSendChampOtp(profile.phoneNumber);
 
       await prisma.userVerification.upsert({
         where: { userId },
         create: {
           userId,
-          phoneOtp: PHONE_OTP_MARKER,
+          phoneOtp: reference,
           phoneOtpSentAt: new Date(),
           phoneVerificationChannel: 'sms',
           status: 'pending',
           attemptCount: 0,
         },
         update: {
-          phoneOtp: PHONE_OTP_MARKER,
+          phoneOtp: reference,
           phoneOtpSentAt: new Date(),
           phoneVerificationChannel: 'sms',
         },
@@ -146,20 +142,20 @@ export class PhoneVerificationService {
         }
       }
 
-      await this.sendSmsOtp(userId, profile.phoneNumber);
+      const reference = await this.createSendChampOtp(profile.phoneNumber);
 
       await prisma.userVerification.upsert({
         where: { userId },
         create: {
           userId,
-          phoneOtp: PHONE_OTP_MARKER,
+          phoneOtp: reference,
           phoneOtpSentAt: new Date(),
           phoneVerificationChannel: 'sms',
           status: 'pending',
           attemptCount: 0,
         },
         update: {
-          phoneOtp: PHONE_OTP_MARKER,
+          phoneOtp: reference,
           phoneOtpSentAt: new Date(),
           phoneVerificationChannel: 'sms',
         },
@@ -208,18 +204,16 @@ export class PhoneVerificationService {
         throw new Error('OTP has expired. Please request a new one.');
       }
 
-      if (this.shouldSkipSendChamp()) {
+      if (
+        this.shouldSkipSendChamp() ||
+        verification.phoneOtp.startsWith('DEV_REF_')
+      ) {
         if (!/^\d{6}$/.test(otp)) {
           throw new Error('Invalid OTP. Must be 6 digits.');
         }
       } else {
-        const valid = await CacheService.verifyPhoneOtpCode(userId, otp);
-        if (!valid) {
-          throw new Error('Invalid OTP. Please check and try again.');
-        }
+        await this.confirmSendChampOtp(verification.phoneOtp, otp);
       }
-
-      await CacheService.deletePhoneOtpCode(userId);
 
       await prisma.userVerification.update({
         where: { userId },
@@ -305,77 +299,129 @@ export class PhoneVerificationService {
     );
   }
 
-  private static generateNumericOtp(length: number): string {
-    const min = 10 ** (length - 1);
-    const max = 10 ** length - 1;
-    return String(crypto.randomInt(min, max + 1));
+  private static sendChampHeaders(): Record<string, string> {
+    return {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${process.env.SENDCHAMP_API_KEY!}`,
+      Accept: 'application/json',
+    };
   }
 
-  private static async sendSmsOtp(userId: string, phoneNumber: string): Promise<void> {
+  /**
+   * POST /api/v1/verification/create
+   * @see https://sendchamp.readme.io/reference/send-otp-api
+   */
+  private static async createSendChampOtp(phoneNumber: string): Promise<string> {
     const mobile = formatPhoneForSendChamp(phoneNumber);
-    const otp = this.generateNumericOtp(6);
-
-    await CacheService.storePhoneOtpCode(userId, otp, OTP_EXPIRY_SECONDS);
 
     if (this.shouldSkipSendChamp()) {
-      logger.info('SendChamp skip enabled — SMS not sent', {
+      logger.info('SendChamp skip enabled — OTP not sent', {
         phone: maskPhoneForLog(mobile),
       });
-      return;
+      return `DEV_REF_${Date.now()}`;
     }
 
     if (!process.env.SENDCHAMP_API_KEY?.trim()) {
-      await CacheService.deletePhoneOtpCode(userId);
       throw new Error(
         'We could not send your verification code right now. Please try again later.'
       );
     }
 
     const sender = process.env.SENDCHAMP_SMS_SENDER?.trim() || 'Sendchamp';
-    const route = process.env.SENDCHAMP_SMS_ROUTE?.trim() || 'dnd';
-    const message = `Your Plz verification code is ${otp}. Valid for ${OTP_EXPIRY_MINUTES} minutes. Do not share this code.`;
 
     try {
       const response = await axios.post(
-        'https://api.sendchamp.com/api/v1/sms/send',
+        'https://api.sendchamp.com/api/v1/verification/create',
         {
-          to: [mobile],
-          message,
-          sender_name: sender,
-          route,
+          channel: 'sms',
+          sender,
+          token_length: 6,
+          token_type: 'numeric',
+          expiration_time: OTP_EXPIRY_MINUTES,
+          customer_mobile_number: mobile,
+          meta_data: {},
         },
         {
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${process.env.SENDCHAMP_API_KEY}`,
-            Accept: 'application/json',
-          },
+          headers: this.sendChampHeaders(),
+          timeout: 15000,
+        }
+      );
+
+      if (
+        response.data?.status !== 'success' ||
+        !response.data?.data?.reference
+      ) {
+        throw new Error(response.data?.message || 'Failed to send OTP');
+      }
+
+      const data = response.data.data as { reference?: string; status?: string };
+      const sendStatus = String(data.status ?? '').toLowerCase();
+      if (sendStatus === 'failed' || sendStatus === 'error') {
+        throw new Error('Failed to send OTP. Please try again.');
+      }
+
+      logger.info('OTP sent via SendChamp verification API', {
+        phone: maskPhoneForLog(mobile),
+        reference: data.reference,
+        sender,
+      });
+
+      return data.reference as string;
+    } catch (error: any) {
+      logger.error('SendChamp verification create failed', {
+        error: error.message,
+        response: error.response?.data,
+        phone: maskPhoneForLog(mobile),
+      });
+      throw new Error(
+        mapSendChampErrorMessage(error.response?.data?.message ?? error.message)
+      );
+    }
+  }
+
+  /**
+   * POST /api/v1/verification/confirm
+   * @see https://sendchamp.readme.io/reference/confirm-otp-api
+   */
+  private static async confirmSendChampOtp(
+    reference: string,
+    otp: string
+  ): Promise<void> {
+    if (!process.env.SENDCHAMP_API_KEY?.trim()) {
+      throw new Error(
+        'We could not verify your code right now. Please try again later.'
+      );
+    }
+
+    try {
+      const response = await axios.post(
+        'https://api.sendchamp.com/api/v1/verification/confirm',
+        {
+          verification_reference: reference,
+          verification_code: otp,
+        },
+        {
+          headers: this.sendChampHeaders(),
           timeout: 15000,
         }
       );
 
       if (response.data?.status !== 'success') {
-        throw new Error(response.data?.message || 'Failed to send SMS');
+        throw new Error(
+          response.data?.message || 'Invalid OTP. Please check and try again.'
+        );
       }
 
-      logger.info('OTP SMS sent via SendChamp', {
-        phone: maskPhoneForLog(mobile),
-        sender,
-        route,
-        smsId: response.data?.data?.id,
-      });
+      logger.info('OTP confirmed via SendChamp', { reference });
     } catch (error: any) {
-      await CacheService.deletePhoneOtpCode(userId);
-      logger.error('SendChamp SMS send failed', {
+      logger.error('SendChamp verification confirm failed', {
         error: error.message,
-        response: error.response?.data,
-        phone: maskPhoneForLog(mobile),
-        sender,
-        route,
+        reference,
       });
-      throw new Error(
-        mapSendChampErrorMessage(error.response?.data?.message ?? error.message)
-      );
+      if (error.response?.data?.message) {
+        throw new Error(error.response.data.message);
+      }
+      throw new Error('Invalid OTP. Please check and try again.');
     }
   }
 
