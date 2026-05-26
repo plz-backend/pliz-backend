@@ -25,12 +25,17 @@ import reactionRoutes from './modules/Reactions/routes/reaction.routes';
 import profilePictureRoutes from './modules/ProfilePicture/routes/profile-picture.routes';
 import locationRoutes from './modules/Location/routes/location.routes';
 import supportRoutes from './modules/Support/routes/support.routes';
+import securityRoutes from './modules/Security/routes/security.routes';
 import schedulerRoutes from './routes/scheduler.routes';
 import { runHealthChecks } from './config/health';
 import { isProduction } from './config/env';
 
 export const createApp = (): Express => {
   const app = express();
+
+  // Cloud Run sits behind Google's load balancer (sets X-Forwarded-For).
+  // Required for express-rate-limit and correct req.ip behind a proxy.
+  app.set('trust proxy', 1);
 
   // Raw body for Paystack webhook MUST be before express.json()
   app.use('/webhooks/paystack', express.raw({ type: 'application/json' }), webhookRoutes);
@@ -93,6 +98,7 @@ export const createApp = (): Express => {
   app.use('/api/profile-picture', profilePictureRoutes);
   app.use('/api/location', locationRoutes);
   app.use('/api/support', supportRoutes);
+  app.use('/api/security', securityRoutes);
   app.use('/internal/scheduler', schedulerRoutes);
 
   // ============================================

@@ -4,6 +4,7 @@ import axios from 'axios';
 import { Decimal } from '@prisma/client/runtime/library';
 import logger from '../../../config/logger';
 import { WithdrawalEmailService } from './withdrawal_email.service';
+import { TransactionPinService } from '../../Security/services/transaction-pin.service';
 
 const COMPANY_FEE_RATE = 0.05; // 5%
 const VAT_RATE = 0.075; // 7.5% of the company fee
@@ -212,9 +213,15 @@ export class WithdrawalService {
   static async requestWithdrawal(
     userId: string,
     begId: string,
-    bankAccountId?: string
+    bankAccountId?: string,
+    transactionPin?: string
   ): Promise<any> {
     try {
+      if (!transactionPin) {
+        throw new Error('Enter your Transaction PIN to continue.');
+      }
+      await TransactionPinService.verify(userId, transactionPin);
+
       const canWithdraw = await this.canUserWithdraw(userId);
       if (!canWithdraw.allowed) throw new Error(canWithdraw.reason);
 

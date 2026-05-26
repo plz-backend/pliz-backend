@@ -55,10 +55,19 @@ export const forgotPassword = async (
       3600
     );
 
-    // Send password reset email
-    EmailService.sendPasswordResetEmail(email, resetToken).catch((error) => {
-      logger.error('Failed to send password reset email', { error, email });
-    });
+    try {
+      await EmailService.sendPasswordResetEmail(email, resetToken);
+    } catch (emailError) {
+      await CacheService.deletePasswordResetToken(resetToken);
+      logger.error('Failed to send password reset email', { error: emailError, email });
+
+      const response: IApiResponse = {
+        success: false,
+        message: 'Unable to send the reset email right now. Please try again later.',
+      };
+      sendResponse(res, 503, response);
+      return;
+    }
 
     logger.info('Password reset email sent', { email });
 
