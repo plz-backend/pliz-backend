@@ -394,6 +394,43 @@ export class CacheService {
   }
 
   // ============================================
+  // PHONE OTP (KYC)
+  // ============================================
+
+  static async storePhoneOtpCode(
+    userId: string,
+    otp: string,
+    expirySeconds: number = 600
+  ): Promise<void> {
+    const bcrypt = await import('bcryptjs');
+    const client = redisClient.getClient();
+    const hash = await bcrypt.hash(otp, 10);
+    await client.setEx(`phone_otp:${userId}`, expirySeconds, hash);
+  }
+
+  static async verifyPhoneOtpCode(userId: string, otp: string): Promise<boolean> {
+    try {
+      const bcrypt = await import('bcryptjs');
+      const client = redisClient.getClient();
+      const hash = await client.get(`phone_otp:${userId}`);
+      if (!hash) return false;
+      return bcrypt.compare(otp, hash);
+    } catch (error) {
+      logger.error('Failed to verify phone OTP code', { error, userId });
+      return false;
+    }
+  }
+
+  static async deletePhoneOtpCode(userId: string): Promise<void> {
+    try {
+      const client = redisClient.getClient();
+      await client.del(`phone_otp:${userId}`);
+    } catch (error) {
+      logger.error('Failed to delete phone OTP code', { error, userId });
+    }
+  }
+
+  // ============================================
   // UTILITY METHODS
   // ============================================
 
