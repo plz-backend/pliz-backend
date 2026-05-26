@@ -51,6 +51,13 @@ model User {
   appleId      String?  @unique @map("apple_id") @db.VarChar(255)
   authProvider String   @default("email") @map("auth_provider") @db.VarChar(20) // email, google, apple
   avatar       String?  @db.Text
+
+  // Transaction PIN (hashed, never store plaintext)
+  transactionPinHash           String?   @map("transaction_pin_hash") @db.VarChar(255)
+  transactionPinSetAt          DateTime? @map("transaction_pin_set_at") @db.Timestamp(6)
+  transactionPinUpdatedAt      DateTime? @map("transaction_pin_updated_at") @db.Timestamp(6)
+  transactionPinFailedAttempts Int       @default(0) @map("transaction_pin_failed_attempts")
+  transactionPinLockedUntil    DateTime? @map("transaction_pin_locked_until") @db.Timestamp(6)
   
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
   updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamp(6)

@@ -22,7 +22,7 @@ export class EmailService {
       this.transporter = nodemailer.createTransport({
         host: process.env.EMAIL_HOST || 'smtp.gmail.com',
         port: parseInt(process.env.EMAIL_PORT || '587'),
-        secure: false, // true for 465, false for other ports
+        secure: true, // true for 465, false for other ports
         auth: {
           user: process.env.EMAIL_USER,
           pass: process.env.EMAIL_PASSWORD,
@@ -125,8 +125,7 @@ export class EmailService {
   ): Promise<void> {
     try {
       if (!this.transporter) {
-        logger.warn('Email service not initialized');
-        return;
+        throw new Error('Email service not initialized');
       }
 
       const frontendBase = getFrontendBaseUrl();

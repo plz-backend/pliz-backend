@@ -24,9 +24,23 @@ function mapSendChampErrorMessage(raw: unknown, channel: OTPChannel): string {
       : typeof raw === 'object' && raw !== null && 'message' in raw
         ? String((raw as { message: unknown }).message)
         : '';
+  const normalized = message.trim().toLowerCase();
 
   if (/channel/i.test(message) && /oneof/i.test(message)) {
-    return 'SMS provider rejected the request. Please try again or contact support.';
+    return 'We could not send your verification code right now. Please try again later.';
+  }
+
+  if (
+    normalized.includes('low balance') ||
+    normalized.includes('fund your wallet') ||
+    normalized.includes('insufficient') ||
+    normalized.includes('wallet') ||
+    normalized.includes('sender') ||
+    normalized.includes('api key') ||
+    normalized.includes('unauthorized') ||
+    normalized.includes('forbidden')
+  ) {
+    return 'We could not send your verification code right now. Please try again later.';
   }
 
   if (message.trim()) {

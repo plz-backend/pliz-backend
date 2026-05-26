@@ -8,6 +8,20 @@ interface NigerianBank {
   slug: string;
 }
 
+const PAYSTACK_TEST_BANK: NigerianBank = {
+  name: 'Paystack Test Bank',
+  code: '001',
+  slug: 'paystack-test-bank',
+};
+
+function shouldIncludePaystackTestBank(): boolean {
+  const isTestKey = (process.env.PAYSTACK_SECRET_KEY || '').startsWith('sk_test_');
+  const enabled =
+    process.env.NODE_ENV === 'staging' ||
+    process.env.PAYSTACK_INCLUDE_TEST_BANKS === 'true';
+  return isTestKey && enabled;
+}
+
 export class BankService {
   private static PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY!;
   private static BASE_URL = 'https://api.paystack.co';
@@ -29,7 +43,12 @@ export class BankService {
         slug: bank.slug,
       }));
 
-      return banks;
+      if (!shouldIncludePaystackTestBank()) {
+        return banks;
+      }
+
+      const hasTestBank = banks.some((bank: NigerianBank) => bank.code === PAYSTACK_TEST_BANK.code);
+      return hasTestBank ? banks : [PAYSTACK_TEST_BANK, ...banks];
     } catch (error: any) {
       logger.error('Failed to fetch Nigerian banks', {
         error: error.response?.data || error.message,
