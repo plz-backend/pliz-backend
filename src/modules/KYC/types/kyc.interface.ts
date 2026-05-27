@@ -23,6 +23,12 @@ export interface IVerifyPhoneOTPRequest {
   otp: string;
 }
 
+export type PhoneOtpChannel = 'sms' | 'whatsapp';
+
+export interface ISendPhoneOTPRequest {
+  channel?: PhoneOtpChannel;
+}
+
 // ============================================
 // RESPONSE INTERFACES
 // ============================================

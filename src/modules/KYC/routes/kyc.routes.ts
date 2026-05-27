@@ -25,12 +25,21 @@ const router = Router();
 
 router.get('/status', authenticate, getKYCStatus);
 
-router.post('/phone/send-otp', authenticate, checkAccountStatus, otpLimiter, sendOTP);
+router.post(
+  '/phone/send-otp',
+  authenticate,
+  sendOTPValidation,
+  validateRequest,
+  checkAccountStatus,
+  otpLimiter,
+  sendOTP
+);
 
 router.post(
   '/phone/resend-otp',
   authenticate,
   sendOTPValidation,
+  validateRequest,
   checkAccountStatus,
   otpLimiter,
   resendOTP

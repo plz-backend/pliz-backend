@@ -108,12 +108,18 @@ export class KYCService {
   // PHONE VERIFICATION
   // Delegated to PhoneVerificationService
   // ============================================
-  static async sendPhoneOTP(userId: string): Promise<{ phoneNumber: string }> {
-    return PhoneVerificationService.sendPhoneOTP(userId);
+  static async sendPhoneOTP(
+    userId: string,
+    channel: 'sms' | 'whatsapp' = 'sms'
+  ): Promise<{ phoneNumber: string; channel: 'sms' | 'whatsapp' }> {
+    return PhoneVerificationService.sendPhoneOTP(userId, channel);
   }
 
-  static async resendPhoneOTP(userId: string): Promise<{ phoneNumber: string }> {
-    return PhoneVerificationService.resendPhoneOTP(userId);
+  static async resendPhoneOTP(
+    userId: string,
+    channel: 'sms' | 'whatsapp' = 'sms'
+  ): Promise<{ phoneNumber: string; channel: 'sms' | 'whatsapp' }> {
+    return PhoneVerificationService.resendPhoneOTP(userId, channel);
   }
 
   static async verifyPhoneOTP(userId: string, otp: string): Promise<void> {

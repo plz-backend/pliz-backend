@@ -4,7 +4,12 @@ import { body } from 'express-validator';
 // ============================================
 // SEND OTP
 // ============================================
-export const sendOTPValidation: ReturnType<typeof body>[] = [];
+export const sendOTPValidation = [
+  body('channel')
+    .optional()
+    .isIn(['sms', 'whatsapp'])
+    .withMessage('Channel must be sms or whatsapp'),
+];
 
 export const verifyOTPValidation = [
   body('otp')
