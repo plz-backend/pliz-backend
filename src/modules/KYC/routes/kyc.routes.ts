@@ -12,7 +12,6 @@ import { updateKYC } from '../controllers/update-kyc.controller';
 import {
   sendOTPValidation,
   verifyOTPValidation,
-  faceLivenessValidation,
 } from '../validations/kyc.validation';
 import {
   otpLimiter,
@@ -21,7 +20,6 @@ import {
 } from '../../auth/middleware/auth/rateLimiter';
 import { handleKYCUpload } from '../middleware/kyc-upload.middleware';
 import { uploadDocument } from '../controllers/upload-document.controller';
-import { verifyFaceLiveness } from '../controllers/verify-face-liveness.controller';
 
 const router = Router();
 
@@ -60,15 +58,6 @@ router.post(
   kycUploadLimiter,
   handleKYCUpload,
   uploadDocument
-);
-
-router.post(
-  '/face-liveness',
-  authenticate,
-  kycUploadLimiter,
-  faceLivenessValidation,
-  validateRequest,
-  verifyFaceLiveness
 );
 
 export default router;

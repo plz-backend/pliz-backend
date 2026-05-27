@@ -20,14 +20,10 @@ const kycBodyValidation = [
   body('verificationType')
     .notEmpty()
     .withMessage('Verification type is required')
-    .isIn(['bvn', 'nin', 'passport'])
-    .withMessage('Verification type must be bvn, nin, or passport'),
+    .equals('nin')
+    .withMessage('Verification type must be nin'),
 
-  // ============================================
-  // NIN — number + scan
-  // ============================================
   body('nin')
-    .if(body('verificationType').equals('nin'))
     .notEmpty()
     .withMessage('NIN or Virtual NIN is required')
     .custom((value) => {
@@ -40,16 +36,14 @@ const kycBodyValidation = [
     }),
 
   body('ninDocumentType')
-    .if(body('verificationType').equals('nin'))
     .notEmpty()
     .withMessage('Please select your NIN document type')
     .isIn(['slip', 'card'])
     .withMessage('NIN document type must be slip or card'),
 
   body('ninFrontUrl')
-    .if(body('verificationType').equals('nin'))
     .notEmpty()
-    .withMessage('Please scan the front of your NIN document')  // ← scan
+    .withMessage('Please scan the front of your NIN document')
     .isURL()
     .withMessage('NIN front scan must be a valid URL'),
 
@@ -59,50 +53,9 @@ const kycBodyValidation = [
       req.body.ninDocumentType === 'card'
     )
     .notEmpty()
-    .withMessage('Please scan the back of your NIN card')        // ← scan
+    .withMessage('Please scan the back of your NIN card')
     .isURL()
     .withMessage('NIN back scan must be a valid URL'),
-
-  // ============================================
-  // PASSPORT — biodata page scan only
-  // ============================================
-  body('passportNumber')
-    .if(body('verificationType').equals('passport'))
-    .notEmpty()
-    .withMessage('Passport number is required')
-    .isString()
-    .trim(),
-
-  body('passportExpiry')
-    .if(body('verificationType').equals('passport'))
-    .notEmpty()
-    .withMessage('Passport expiry date is required')
-    .isISO8601()
-    .withMessage('Passport expiry must be a valid date e.g. 2027-06-15')
-    .custom((value) => {
-      if (new Date(value) < new Date()) {
-        throw new Error('Your passport has expired. Please use BVN or NIN instead.');
-      }
-      return true;
-    }),
-
-  body('passportBiodataUrl')
-    .if(body('verificationType').equals('passport'))
-    .notEmpty()
-    .withMessage('Please scan your passport biodata page')       // ← scan
-    .isURL()
-    .withMessage('Passport biodata scan must be a valid URL'),
-];
-
-// ============================================
-// FACE LIVENESS
-// ============================================
-export const faceLivenessValidation = [
-  body('image')
-    .notEmpty()
-    .withMessage('Selfie image is required')
-    .isString()
-    .withMessage('Image must be a base64 string'),
 ];
 
 // ============================================

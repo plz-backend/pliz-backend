@@ -1,7 +1,6 @@
 import prisma from '../../../config/database';
 import { Prisma } from '@prisma/client';
 import logger from '../../../config/logger';
-import { kycRequireFaceLiveness } from '../../../config/env';
 import { AdminService } from '../../admin/services/admin.service';
 import { TrustScoreService } from '../../../services/trust_score.service';
 import { maskPhoneForLog } from '../../../utils/sanitize-log';
@@ -17,6 +16,17 @@ import {
 
 const MAX_ATTEMPTS = 3;
 
+function canRetryAfterRejection(verification: {
+  status: string;
+  attemptCount: number;
+  verificationType?: string | null;
+}): boolean {
+  if (verification.status !== 'rejected') return false;
+  if (verification.attemptCount < MAX_ATTEMPTS) return true;
+  // Legacy passport path removed — let users restart with NIN.
+  return verification.verificationType === 'passport';
+}
+
 function isValidNinOrVnin(value: string): boolean {
   const trimmed = value.trim();
   if (/^\d{11}$/.test(trimmed.replace(/\D/g, ''))) return true;
@@ -29,13 +39,6 @@ function normalizeNinOrVnin(value: string): string {
   if (/^\d{11}$/.test(digits)) return digits;
   return trimmed.replace(/\s/g, '').toUpperCase();
 }
-
-/** UI step — face is done once status has moved past document upload verification. */
-const FACE_LIVENESS_STEP_DONE_STATUSES = new Set<string>([
-  'liveness_passed',
-  'under_review',
-  'verified',
-]);
 
 export class KYCService {
 
@@ -55,10 +58,7 @@ export class KYCService {
       ? Math.max(0, MAX_ATTEMPTS - verification.attemptCount)
       : MAX_ATTEMPTS;
 
-    const canRetry = verification
-      ? verification.status === 'rejected' &&
-        verification.attemptCount < MAX_ATTEMPTS
-      : false;
+    const canRetry = verification ? canRetryAfterRejection(verification) : false;
 
     const steps = [
       {
@@ -79,28 +79,10 @@ export class KYCService {
         step: 3,
         label: 'Document uploaded',
         completed: verification?.documentVerified || false,
-        description: 'Fill in your document details and upload NIN or Passport',
+        description: 'Fill in your NIN details and upload your NIN slip or card',
       },
       {
         step: 4,
-        label:
-          verification?.verificationType === 'passport'
-            ? 'Selfie for passport match'
-            : 'Face liveness check',
-        completed:
-          verification?.verificationType === 'nin'
-            ? Boolean(verification?.documentVerified)
-            : Boolean(
-                verification?.status &&
-                  FACE_LIVENESS_STEP_DONE_STATUSES.has(verification.status)
-              ),
-        description:
-          verification?.verificationType === 'passport'
-            ? 'Take a selfie — it will be matched to your passport photo'
-            : 'Not required for NIN verification',
-      },
-      {
-        step: 5,
         label: 'Identity verified',
         completed: verification?.isVerified || false,
         description: 'Prembly verifies your identity against government records',
@@ -168,34 +150,18 @@ export class KYCService {
       }
 
       // ── VALIDATE NIN FIELDS ──────────────────
-      if (data.verificationType === 'nin') {
-        if (!data.nin || !isValidNinOrVnin(data.nin)) {
-          throw new Error(
-            'Enter a valid 11-digit NIN or 16-character Virtual NIN (vNIN) from the NIMC app.'
-          );
-        }
-        data.nin = normalizeNinOrVnin(data.nin);
-        if (!data.ninDocumentType || !['slip', 'card'].includes(data.ninDocumentType)) {
-          throw new Error('Please select NIN document type (slip or card).');
-        }
+      if (data.verificationType !== 'nin') {
+        throw new Error('Only NIN verification is supported.');
+      }
 
-      // ── VALIDATE PASSPORT FIELDS ─────────────
-      } else if (data.verificationType === 'passport') {
-        if (!data.passportNumber || !/^[A-Z]{1}[0-9]{8}$/.test(data.passportNumber)) {
-          throw new Error('Passport number must be in format A12345678.');
-        }
-        if (!data.passportPlaceOfBirth) throw new Error('Place of birth is required.');
-        if (!data.passportIssueDate) throw new Error('Issue date is required.');
-        if (!data.passportExpiry) throw new Error('Expiry date is required.');
-        if (!data.passportPlaceOfIssue) throw new Error('Place of issue is required.');
-        if (new Date(data.passportExpiry) < new Date()) {
-          throw new Error('Your passport has expired. Please use a valid passport.');
-        }
-        if (new Date(data.passportIssueDate) > new Date()) {
-          throw new Error('Issue date cannot be in the future.');
-        }
-      } else {
-        throw new Error('verificationType must be nin or passport.');
+      if (!data.nin || !isValidNinOrVnin(data.nin)) {
+        throw new Error(
+          'Enter a valid 11-digit NIN or 16-character Virtual NIN (vNIN) from the NIMC app.'
+        );
+      }
+      data.nin = normalizeNinOrVnin(data.nin);
+      if (!data.ninDocumentType || !['slip', 'card'].includes(data.ninDocumentType)) {
+        throw new Error('Please select NIN document type (slip or card).');
       }
 
       // ── UPLOAD TO SUPABASE ────────────────────
@@ -204,50 +170,29 @@ export class KYCService {
       );
 
       // ── BUILD UPDATE DATA ─────────────────────
-      const updateData: any = {};
+      const updateData: any = {
+        verificationType: 'nin',
+        nin: data.nin,
+        ninDocumentType: data.ninDocumentType,
+      };
+      if (data.ninStateOfOrigin) updateData.ninStateOfOrigin = data.ninStateOfOrigin;
+      if (data.ninLGA) updateData.ninLGA = data.ninLGA;
+      if (data.ninMiddleName) updateData.ninMiddleName = data.ninMiddleName;
 
-      if (data.verificationType === 'nin') {
-        updateData.verificationType = 'nin';
-        updateData.nin = data.nin;
-        updateData.ninDocumentType = data.ninDocumentType;
-        if (data.ninStateOfOrigin) updateData.ninStateOfOrigin = data.ninStateOfOrigin;
-        if (data.ninLGA) updateData.ninLGA = data.ninLGA;
-        if (data.ninMiddleName) updateData.ninMiddleName = data.ninMiddleName;
-
-        if (data.documentType === 'nin_front') {
-          updateData.ninFrontUrl = documentUrl;
-          // Slip = one image only → mark document verified
-          if (data.ninDocumentType === 'slip') {
-            updateData.documentVerified = true;
-            updateData.documentVerifiedAt = new Date();
-            updateData.status = 'document_uploaded';
-          }
-          // Card = needs back too → not verified yet
-        } else if (data.documentType === 'nin_back') {
-          updateData.ninBackUrl = documentUrl;
-          // Back uploaded — check if front already exists
-          if (verification.ninFrontUrl) {
-            updateData.documentVerified = true;
-            updateData.documentVerifiedAt = new Date();
-            updateData.status = 'document_uploaded';
-          }
+      if (data.documentType === 'nin_front') {
+        updateData.ninFrontUrl = documentUrl;
+        if (data.ninDocumentType === 'slip') {
+          updateData.documentVerified = true;
+          updateData.documentVerifiedAt = new Date();
+          updateData.status = 'document_uploaded';
         }
-      } else {
-        // Passport
-        updateData.verificationType = 'passport';
-        updateData.passportNumber = data.passportNumber;
-        updateData.passportExpiry = new Date(data.passportExpiry!);
-        updateData.passportIssueDate = new Date(data.passportIssueDate!);
-        updateData.passportPlaceOfBirth = data.passportPlaceOfBirth;
-        updateData.passportPlaceOfIssue = data.passportPlaceOfIssue;
-        updateData.passportBiodataUrl = documentUrl;
-        if (data.passportMiddleName) {
-          updateData.passportMiddleName = data.passportMiddleName;
+      } else if (data.documentType === 'nin_back') {
+        updateData.ninBackUrl = documentUrl;
+        if (verification.ninFrontUrl) {
+          updateData.documentVerified = true;
+          updateData.documentVerifiedAt = new Date();
+          updateData.status = 'document_uploaded';
         }
-        // Passport biodata page only → mark document verified
-        updateData.documentVerified = true;
-        updateData.documentVerifiedAt = new Date();
-        updateData.status = 'document_uploaded';
       }
 
       const updated = await prisma.userVerification.upsert({
@@ -303,15 +248,9 @@ export class KYCService {
       if (!verification) throw new Error('Please start KYC verification first.');
       if (!verification.phoneVerified) throw new Error('Please verify your phone number first.');
       if (!verification.documentVerified) throw new Error('Please upload your document first.');
-      const requiresLiveness =
-        verification.verificationType === 'passport' && kycRequireFaceLiveness();
       const readyToSubmit =
-        verification.status === 'liveness_passed' ||
-        (verification.verificationType === 'nin' &&
-          verification.status === 'document_uploaded') ||
-        (!requiresLiveness &&
-          verification.verificationType === 'passport' &&
-          verification.status === 'document_uploaded');
+        verification.status === 'document_uploaded' ||
+        verification.status === 'liveness_passed';
 
       if (!readyToSubmit) {
         if (verification.status === 'under_review') {
@@ -320,10 +259,7 @@ export class KYCService {
         if (verification.isVerified || verification.status === 'verified') {
           throw new Error('You are already verified.');
         }
-        if (verification.verificationType === 'passport' && requiresLiveness) {
-          throw new Error('Please take a selfie before submitting your passport verification.');
-        }
-        throw new Error('Please upload your NIN document before submitting.');
+        throw new Error('Please upload your document before submitting.');
       }
       if (verification.isVerified) throw new Error('You are already verified.');
       if (verification.attemptCount >= MAX_ATTEMPTS) {
@@ -378,7 +314,12 @@ export class KYCService {
   static async updateKYC(userId: string): Promise<IKYCResponse> {
     const verification = await prisma.userVerification.findUnique({
       where: { userId },
-      select: { status: true, isVerified: true, attemptCount: true },
+      select: {
+        status: true,
+        isVerified: true,
+        attemptCount: true,
+        verificationType: true,
+      },
     });
 
     if (!verification) {
@@ -397,17 +338,20 @@ export class KYCService {
       };
       throw new Error(messages[verification.status] || 'Cannot update at this time.');
     }
-    if (verification.attemptCount >= MAX_ATTEMPTS) {
+    if (!canRetryAfterRejection(verification)) {
       throw new Error(
         `Maximum attempts (${MAX_ATTEMPTS}) reached. Please contact support@plz.app`
       );
     }
+
+    const resetAttemptCount = verification.verificationType === 'passport';
 
     // Reset all fields for resubmission
     await prisma.userVerification.update({
       where: { userId },
       data: {
         status: 'pending',
+        ...(resetAttemptCount ? { attemptCount: 0 } : {}),
         verificationType: null,
         nin: null,
         ninDocumentType: null,
@@ -696,56 +640,22 @@ export class KYCService {
     profile: any
   ): Promise<void> {
     try {
-      let result;
-
-      if (verification.verificationType === 'nin') {
-        result = await IdentityVerificationService.verifyNIN(verification.nin, {
-          firstName: profile.firstName,
-          lastName: profile.lastName,
-          dateOfBirth: profile.dateOfBirth,
-          gender: profile.gender,
-          phoneNumber: profile.phoneNumber,
-        });
-      } else if (kycRequireFaceLiveness()) {
-        const faceBase64 = await KYCDocumentUploadService.downloadAsBase64(
-          verification.faceLivenessUrl
+      if (verification.verificationType !== 'nin' || !verification.nin) {
+        await this.rejectKYC(
+          userId,
+          'Only NIN verification is supported. Please verify with your NIN.',
+          verification.attemptCount
         );
-        if (!faceBase64) {
-          logger.warn('Passport verification missing face image — kept under_review', {
-            userId,
-          });
-          return;
-        }
-
-        result = await IdentityVerificationService.verifyPassport(
-          verification.passportNumber,
-          verification.passportExpiry?.toISOString() || '',
-          {
-            firstName: profile.firstName,
-            lastName: profile.lastName,
-            dateOfBirth: profile.dateOfBirth,
-            gender: profile.gender,
-          },
-          {
-            passportMiddleName: verification.passportMiddleName,
-            passportPlaceOfBirth: verification.passportPlaceOfBirth,
-            passportIssueDate: verification.passportIssueDate?.toISOString() || '',
-            passportPlaceOfIssue: verification.passportPlaceOfIssue,
-          },
-          faceBase64
-        );
-      } else {
-        result = await IdentityVerificationService.verifyPassportBasic(
-          verification.passportNumber,
-          verification.passportExpiry?.toISOString() || '',
-          {
-            firstName: profile.firstName,
-            lastName: profile.lastName,
-            dateOfBirth: profile.dateOfBirth,
-            gender: profile.gender,
-          }
-        );
+        return;
       }
+
+      const result = await IdentityVerificationService.verifyNIN(verification.nin, {
+        firstName: profile.firstName,
+        lastName: profile.lastName,
+        dateOfBirth: profile.dateOfBirth,
+        gender: profile.gender,
+        phoneNumber: profile.phoneNumber,
+      });
 
       if (result.verified) {
         await prisma.userVerification.update({
@@ -847,9 +757,7 @@ export class KYCService {
       rejectionReason: verification.rejectionReason,
       attemptCount: verification.attemptCount,
       attemptsRemaining: Math.max(0, MAX_ATTEMPTS - verification.attemptCount),
-      canRetry:
-        verification.status === 'rejected' &&
-        verification.attemptCount < MAX_ATTEMPTS,
+      canRetry: canRetryAfterRejection(verification),
       createdAt: verification.createdAt,
       updatedAt: verification.updatedAt,
     };
@@ -926,9 +834,7 @@ export class KYCService {
       rejectedBy: verification.rejectedBy,
       attemptCount: verification.attemptCount,
       attemptsRemaining: Math.max(0, MAX_ATTEMPTS - verification.attemptCount),
-      canRetry:
-        verification.status === 'rejected' &&
-        verification.attemptCount < MAX_ATTEMPTS,
+      canRetry: canRetryAfterRejection(verification),
 
       // Provider
       verificationProvider: verification.verificationProvider,
@@ -964,20 +870,12 @@ export class KYCService {
         buttonLabel: 'Verify phone',
         buttonUrl: '/kyc/phone',
       },
-      document_uploaded:
-        verificationType === 'passport'
-          ? {
-              title: 'Take a selfie',
-              body: 'Document uploaded! Take a selfie — it will be matched to your passport photo.',
-              buttonLabel: 'Take selfie',
-              buttonUrl: '/kyc/liveness',
-            }
-          : {
-              title: 'Submit verification',
-              body: 'Document uploaded! Submit your verification for final NIN check.',
-              buttonLabel: 'Submit',
-              buttonUrl: '/kyc/submit',
-            },
+      document_uploaded: {
+        title: 'Submit verification',
+        body: 'Document uploaded! Submit your verification for final NIN check.',
+        buttonLabel: 'Submit',
+        buttonUrl: '/kyc/submit',
+      },
       liveness_passed: {
         title: 'Submit verification',
         body: 'Almost done! Submit your verification for final check.',
@@ -998,11 +896,16 @@ export class KYCService {
       },
       rejected: {
         title: 'Verification failed',
-        body: canRetry
-          ? `Please correct your details and try again. You have ${attemptsRemaining} attempt${
-              attemptsRemaining > 1 ? 's' : ''
-            } remaining.`
-          : 'Maximum attempts reached. Please contact support@plz.ng',
+        body:
+          canRetry &&
+          verificationType === 'passport' &&
+          attemptsRemaining === 0
+            ? 'Passport verification is no longer available. Tap Try again to verify with your NIN.'
+            : canRetry
+              ? `Please correct your details and try again. You have ${attemptsRemaining} attempt${
+                  attemptsRemaining > 1 ? 's' : ''
+                } remaining.`
+              : 'Maximum attempts reached. Please contact support@plz.ng',
         buttonLabel: canRetry ? 'Try again' : 'Contact support',
         buttonUrl: canRetry ? '/kyc/update' : 'mailto:support@plz.ng',
       },

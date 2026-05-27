@@ -24,7 +24,6 @@ const baseSchema = z.object({
   PREMBLY_API_KEY: z.string().optional(),
   PREMBLY_APP_ID: z.string().optional(),
   SENDCHAMP_API_KEY: z.string().optional(),
-  KYC_REQUIRE_FACE_LIVENESS: z.enum(['true', 'false']).optional(),
   PREMBLY_SKIP_VERIFICATION: z.enum(['true', 'false']).optional(),
 });
 
@@ -122,8 +121,4 @@ export function getEnv(): AppEnv {
 
 export function isProduction(): boolean {
   return (process.env.NODE_ENV || 'development') === 'production';
-}
-
-export function kycRequireFaceLiveness(): boolean {
-  return process.env.KYC_REQUIRE_FACE_LIVENESS === 'true';
 }

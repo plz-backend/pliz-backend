@@ -179,9 +179,7 @@ export const getMe = async (
             isVerified: user.verification.isVerified,
             phoneVerified: user.verification.phoneVerified,
             documentVerified: user.verification.documentVerified,
-            faceLivenessPassed: ['liveness_passed', 'under_review', 'verified'].includes(
-              user.verification.status
-            ),
+            faceLivenessPassed: false,
             verifiedAt: user.verification.verifiedAt,
             rejectionReason: user.verification.rejectionReason,
             attemptCount: user.verification.attemptCount,

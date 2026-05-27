@@ -29,6 +29,7 @@ export const requireKYC = async (
           status: true,
           attemptCount: true,
           rejectionReason: true,
+          verificationType: true,
         },
       }),
       prisma.userProfile.findUnique({
@@ -53,24 +54,14 @@ export const requireKYC = async (
             body: 'To protect donors and keep Plz safe, we verify all users before they can receive donations. It takes less than 2 minutes.',
             steps: [
               { step: 1, label: 'Verify Phone Number', completed: false },
-              { step: 2, label: 'Verify Identity (BVN / NIN / Passport)', completed: false },
+              { step: 2, label: 'Verify Identity (NIN)', completed: false },
             ],
             options: [
               {
-                type: 'bvn',
-                label: 'BVN',
-                description: 'Recommended — fastest, no scan needed',  // ← updated
-                recommended: true,
-              },
-              {
                 type: 'nin',
                 label: 'NIN',
-                description: 'Scan your NIN slip (front only) or NIN ID card (front + back)',  // ← updated
-              },
-              {
-                type: 'passport',
-                label: 'International Passport',
-                description: 'Scan the biodata page of your passport',  // ← updated
+                description: 'Verify with your 11-digit NIN or Virtual NIN (vNIN)',
+                recommended: true,
               },
             ],
             buttonLabel: 'Start Verification',
@@ -110,7 +101,9 @@ export const requireKYC = async (
     // ── IDENTITY NOT VERIFIED ─────────────────
     if (!verification.isVerified) {
       const attemptsRemaining = Math.max(0, 3 - verification.attemptCount);
-      const canRetry = verification.status === 'rejected' && attemptsRemaining > 0;
+      const canRetry =
+        verification.status === 'rejected' &&
+        (attemptsRemaining > 0 || verification.verificationType === 'passport');
 
       const statusMessages: Record<string, any> = {
         pending: {
@@ -127,9 +120,14 @@ export const requireKYC = async (
         },
         rejected: {
           title: 'Verification Failed ❌',
-          body: canRetry
-            ? `${verification.rejectionReason || 'Verification failed'}. You have ${attemptsRemaining} attempt${attemptsRemaining > 1 ? 's' : ''} remaining.`
-            : 'Maximum attempts reached. Please contact support@plz.app',
+          body:
+            canRetry &&
+            verification.verificationType === 'passport' &&
+            attemptsRemaining === 0
+              ? 'Passport verification is no longer available. Tap Try again to verify with your NIN.'
+              : canRetry
+                ? `${verification.rejectionReason || 'Verification failed'}. You have ${attemptsRemaining} attempt${attemptsRemaining > 1 ? 's' : ''} remaining.`
+                : 'Maximum attempts reached. Please contact support@plz.app',
           buttonLabel: canRetry ? 'Try Again' : 'Contact Support',
           buttonUrl: canRetry ? '/kyc/update' : 'mailto:support@plz.app',
         },

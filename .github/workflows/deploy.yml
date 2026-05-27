@@ -128,5 +128,5 @@ jobs:
             --set-secrets=OTP_EXPIRY_MINUTES=OTP_EXPIRY_MINUTES:latest
             --set-secrets=JWT_REFRESH_SECRET=JWT_REFRESH_SECRET:latest
             --set-secrets=SCHEDULER_SECRET=SCHEDULER_SECRET:latest
-            --set-env-vars=NODE_ENV=production,SCHEDULER_ENABLED=false,KYC_REQUIRE_FACE_LIVENESS=false,COOKIE_SECURE=true
+            --set-env-vars=NODE_ENV=production,SCHEDULER_ENABLED=false,COOKIE_SECURE=true
             
