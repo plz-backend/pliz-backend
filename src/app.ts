@@ -16,7 +16,7 @@ import kycRoutes from './modules/KYC/routes/kyc.routes';
 import begRoutes from './modules/Beg/routers/beg.routers';
 import donorRoutes from './modules/Donor/router/donations.routes';
 import notificationRoutes from './modules/notifications/routes/notification.routes';
-import webhookRoutes from './webhooks/paystack.webhook';
+import flutterwaveWebhookRoutes from '../../pliz-backend/src/webhooks/flutterwave.webhook'
 import adminRoutes from './modules/admin/routes/admin.routes';
 import paymentMethodRoutes from './modules/Payment/router/payment_method.routes';
 import withdrawalRoutes from './modules/Withdrawal/router/withdrawal.routes';
@@ -37,8 +37,12 @@ export const createApp = (): Express => {
   // Required for express-rate-limit and correct req.ip behind a proxy.
   app.set('trust proxy', 1);
 
-  // Raw body for Paystack webhook MUST be before express.json()
-  app.use('/webhooks/paystack', express.raw({ type: 'application/json' }), webhookRoutes);
+  // ── Flutterwave webhook ───────────────────
+  app.use(
+    '/webhooks/flutterwave',
+    express.json(),
+    flutterwaveWebhookRoutes
+  );
 
   // Security middleware
   app.use(helmet());
@@ -121,7 +125,7 @@ export const createApp = (): Express => {
           withdrawals: '/api/withdrawals',
           stories: '/api/stories',
           support: '/api/support',
-          webhook: '/webhooks/paystack',
+          webhook: '/webhooks/flutterwave',
         },
         features: [
           'User Registration & Login',
@@ -130,7 +134,7 @@ export const createApp = (): Express => {
           'JWT Authentication',
           'PostgreSQL Database',
           'Redis Caching',
-          'Paystack Payments',
+          'Flutterwave Payments',
           'Real-time Notifications (Socket.io)',
           'Donor Ranking System',
           'Gratitude Messaging',

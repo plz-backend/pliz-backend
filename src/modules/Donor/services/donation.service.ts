@@ -31,7 +31,7 @@ const buildBegTitle = (
 
 export class DonationService {
   /**
-   * Process donation after Paystack confirms payment
+   * Process donation after Flutterwave confirms payment
    */
   static async processDonation(data: {
     begId: string;

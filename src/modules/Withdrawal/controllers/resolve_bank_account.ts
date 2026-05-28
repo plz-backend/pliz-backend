@@ -13,7 +13,7 @@ const sendResponse = <T = any>(
 
 /**
  * @route   POST /api/withdrawals/resolve-account
- * @desc    Resolve account holder name (Paystack) without saving
+ * @desc    Resolve account holder name (Flutterwave) without saving
  * @access  Private
  */
 export const resolveBankAccount = async (req: Request, res: Response): Promise<void> => {
