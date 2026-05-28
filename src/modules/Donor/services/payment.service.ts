@@ -1,59 +1,75 @@
 import axios from 'axios';
-import crypto from 'crypto';
 import logger from '../../../config/logger';
 
+const FLW_BASE_URL = 'https://api.flutterwave.com/v3';
+
+const getHeaders = () => ({
+  'Content-Type': 'application/json',
+  Authorization: `Bearer ${process.env.FLW_SECRET_KEY}`,
+});
+
 export class PaymentService {
-  private static BASE_URL = 'https://api.paystack.co';
-  private static SECRET_KEY = process.env.PAYSTACK_SECRET_KEY!;
 
-  private static get headers() {
-    return {
-      Authorization: `Bearer ${this.SECRET_KEY}`,
-      'Content-Type': 'application/json',
-    };
-  }
-
-  /**
-   * Initialize payment with Paystack
-   * Returns authorization URL - donor is redirected here to pay
-   */
+  // ============================================
+  // INITIALIZE PAYMENT
+  // ============================================
   static async initializePayment(data: {
     email: string;
     amount: number;
     reference: string;
     begId: string;
-    donorId?: string;
+    donorId?: string | null;
     isAnonymous: boolean;
-    callbackUrl?: string;
+    redirectUrl?: string;
   }): Promise<{
     success: boolean;
-    authorizationUrl?: string;
+    paymentUrl?: string;
     reference: string;
     error?: string;
   }> {
     try {
-      const callback_url =
-        data.callbackUrl?.trim() ||
-        `${process.env.FRONTEND_URL}/payment/callback`;
+      const redirectUrl =
+        data.redirectUrl?.trim() ||
+        `${process.env.FRONTEND_URL}/donations/verify`;
 
       const response = await axios.post(
-        `${this.BASE_URL}/transaction/initialize`,
+        `${FLW_BASE_URL}/payments`,
         {
-          email: data.email,
-          amount: Math.round(data.amount * 100), // Naira to kobo
-          reference: data.reference,
-          callback_url,
-          channels: ['card', 'bank', 'ussd', 'qr', 'mobile_money', 'bank_transfer'],
-          metadata: {
+          tx_ref: data.reference,
+          amount: data.amount,
+          currency: 'NGN',
+          redirect_url: redirectUrl,
+          payment_options: 'card,banktransfer,ussd',
+          customer: {
+            email: data.email,
+          },
+          customizations: {
+            title: 'Plz',
+            description: 'Support a request on Plz',
+            logo: `${process.env.FRONTEND_URL}/logo.png`,
+          },
+          meta: {
             beg_id: data.begId,
-            donor_id: data.donorId,
+            donor_id: data.donorId || 'guest',
             is_anonymous: data.isAnonymous,
+            source: 'plz_app',
           },
         },
-        { headers: this.headers }
+        { headers: getHeaders(), timeout: 30000 }
       );
 
-      logger.info('Paystack payment initialized', {
+      if (
+        response.data?.status !== 'success' ||
+        !response.data?.data?.link
+      ) {
+        return {
+          success: false,
+          reference: data.reference,
+          error: response.data?.message || 'Failed to initialize payment',
+        };
+      }
+
+      logger.info('Flutterwave payment initialized', {
         reference: data.reference,
         begId: data.begId,
         amount: data.amount,
@@ -61,15 +77,14 @@ export class PaymentService {
 
       return {
         success: true,
-        authorizationUrl: response.data.data.authorization_url,
+        paymentUrl: response.data.data.link,
         reference: data.reference,
       };
     } catch (error: any) {
-      logger.error('Paystack initialization failed', {
+      logger.error('Flutterwave initialization failed', {
         error: error.response?.data || error.message,
         reference: data.reference,
       });
-
       return {
         success: false,
         reference: data.reference,
@@ -78,57 +93,113 @@ export class PaymentService {
     }
   }
 
-  /**
-   * Verify payment with Paystack
-   * Called on redirect after donor completes payment
-   */
-  static async verifyPayment(reference: string): Promise<{
-    status: string;
-    amount: number;
-    begId: string;
-    donorId: string;
-    isAnonymous: boolean;
-    paymentMethod: string;
+  // ============================================
+  // VERIFY TRANSACTION
+  // ============================================
+  static async verifyTransaction(transactionId: string): Promise<{
+    success: boolean;
+    verified: boolean;
+    data?: {
+      amount: number;
+      currency: string;
+      txRef: string;
+      flwRef: string;
+      status: string;
+      paymentMethod: string;
+      customerEmail: string;
+      meta?: any;
+    };
+    error?: string;
   }> {
     try {
       const response = await axios.get(
-        `${this.BASE_URL}/transaction/verify/${reference}`,
-        { headers: this.headers }
+        `${FLW_BASE_URL}/transactions/${transactionId}/verify`,
+        { headers: getHeaders(), timeout: 30000 }
       );
 
-      const data = response.data.data;
+      if (response.data?.status !== 'success') {
+        return {
+          success: false,
+          verified: false,
+          error: response.data?.message || 'Transaction verification failed',
+        };
+      }
 
-      logger.info('Paystack payment verified', {
-        reference,
-        status: data.status,
-        amount: data.amount / 100,
+      const transaction = response.data.data;
+      const isSuccessful = transaction.status === 'successful';
+
+      logger.info('Flutterwave transaction verified', {
+        transactionId,
+        txRef: transaction.tx_ref,
+        status: transaction.status,
+        amount: transaction.amount,
       });
 
       return {
-        status: data.status,               // 'success' | 'failed' | 'abandoned'
-        amount: data.amount / 100,         // kobo back to Naira
-        begId: data.metadata.beg_id,
-        donorId: data.metadata.donor_id,
-        isAnonymous: data.metadata.is_anonymous,
-        paymentMethod: data.channel,       // 'card' | 'bank' | 'ussd'
+        success: true,
+        verified: isSuccessful,
+        data: {
+          amount: transaction.amount,
+          currency: transaction.currency,
+          txRef: transaction.tx_ref,
+          flwRef: transaction.flw_ref,
+          status: transaction.status,
+          paymentMethod: transaction.payment_type,
+          customerEmail: transaction.customer?.email,
+          meta: transaction.meta,
+        },
       };
     } catch (error: any) {
-      logger.error('Paystack verification failed', {
+      logger.error('Flutterwave verification failed', {
         error: error.response?.data || error.message,
-        reference,
+        transactionId,
       });
-      throw new Error('Failed to verify payment');
+      return {
+        success: false,
+        verified: false,
+        error: error.response?.data?.message || 'Failed to verify transaction',
+      };
     }
   }
 
-  /**
-   * Verify webhook signature is genuinely from Paystack
-   */
-  static verifyWebhookSignature(rawBody: string, signature: string): boolean {
-    const hash = crypto
-      .createHmac('sha512', this.SECRET_KEY)
-      .update(rawBody)
-      .digest('hex');
-    return hash === signature;
+  // ============================================
+  // GET TRANSACTION BY TX_REF
+  // ============================================
+  static async getTransactionByRef(txRef: string): Promise<{
+    success: boolean;
+    data?: any;
+    error?: string;
+  }> {
+    try {
+      const response = await axios.get(
+        `${FLW_BASE_URL}/transactions?tx_ref=${txRef}`,
+        { headers: getHeaders(), timeout: 30000 }
+      );
+
+      if (
+        response.data?.status !== 'success' ||
+        !response.data?.data?.length
+      ) {
+        return { success: false, error: 'Transaction not found' };
+      }
+
+      return { success: true, data: response.data.data[0] };
+    } catch (error: any) {
+      logger.error('Flutterwave get transaction by ref failed', {
+        error: error.response?.data || error.message,
+        txRef,
+      });
+      return {
+        success: false,
+        error: error.response?.data?.message || 'Failed to get transaction',
+      };
+    }
+  }
+
+  // ============================================
+  // VERIFY WEBHOOK SIGNATURE
+  // ============================================
+  static verifyWebhookSignature(signature: string): boolean {
+    return signature === process.env.FLW_WEBHOOK_HASH;
   }
 }

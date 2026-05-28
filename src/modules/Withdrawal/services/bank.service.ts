@@ -8,47 +8,38 @@ interface NigerianBank {
   slug: string;
 }
 
-const PAYSTACK_TEST_BANK: NigerianBank = {
-  name: 'Paystack Test Bank',
-  code: '001',
-  slug: 'paystack-test-bank',
-};
+const FLW_BASE_URL = 'https://api.flutterwave.com/v3';
 
-function shouldIncludePaystackTestBank(): boolean {
-  const isTestKey = (process.env.PAYSTACK_SECRET_KEY || '').startsWith('sk_test_');
-  const enabled =
-    process.env.NODE_ENV === 'staging' ||
-    process.env.PAYSTACK_INCLUDE_TEST_BANKS === 'true';
-  return isTestKey && enabled;
-}
+const getHeaders = () => ({
+  'Content-Type': 'application/json',
+  Authorization: `Bearer ${process.env.FLW_SECRET_KEY}`,
+});
 
 export class BankService {
-  private static PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY!;
-  private static BASE_URL = 'https://api.paystack.co';
 
-  /**
-   * Get list of Nigerian banks from Paystack
-   */
+  // ============================================
+  // GET NIGERIAN BANKS
+  // ============================================
   static async getNigerianBanks(): Promise<NigerianBank[]> {
     try {
-      const response = await axios.get(`${this.BASE_URL}/bank?country=nigeria`, {
-        headers: {
-          Authorization: `Bearer ${this.PAYSTACK_SECRET}`,
-        },
-      });
+      const response = await axios.get(
+        `${FLW_BASE_URL}/banks/NG`,
+        { headers: getHeaders(), timeout: 15000 }
+      );
 
-      const banks = response.data.data.map((bank: any) => ({
-        name: bank.name,
-        code: bank.code,
-        slug: bank.slug,
-      }));
-
-      if (!shouldIncludePaystackTestBank()) {
-        return banks;
+      if (response.data?.status !== 'success') {
+        throw new Error('Failed to fetch banks from Flutterwave');
       }
 
-      const hasTestBank = banks.some((bank: NigerianBank) => bank.code === PAYSTACK_TEST_BANK.code);
-      return hasTestBank ? banks : [PAYSTACK_TEST_BANK, ...banks];
+      const banks: NigerianBank[] = response.data.data.map((bank: any) => ({
+        name: bank.name,
+        code: bank.code,
+        slug: bank.name.toLowerCase().replace(/\s+/g, '-'),
+      }));
+
+      logger.info('Nigerian banks fetched', { count: banks.length });
+
+      return banks;
     } catch (error: any) {
       logger.error('Failed to fetch Nigerian banks', {
         error: error.response?.data || error.message,
@@ -57,9 +48,9 @@ export class BankService {
     }
   }
 
-  /**
-   * Verify bank account with Paystack
-   */
+  // ============================================
+  // VERIFY BANK ACCOUNT
+  // ============================================
   static async verifyBankAccount(
     accountNumber: string,
     bankCode: string
@@ -69,18 +60,24 @@ export class BankService {
     bankCode: string;
   }> {
     try {
-      const response = await axios.get(
-        `${this.BASE_URL}/bank/resolve?account_number=${accountNumber}&bank_code=${bankCode}`,
+      const response = await axios.post(
+        `${FLW_BASE_URL}/accounts/resolve`,
         {
-          headers: {
-            Authorization: `Bearer ${this.PAYSTACK_SECRET}`,
-          },
-        }
+          account_number: accountNumber,
+          account_bank: bankCode,
+        },
+        { headers: getHeaders(), timeout: 15000 }
       );
+
+      if (response.data?.status !== 'success') {
+        throw new Error(
+          response.data?.message || 'Could not verify bank account'
+        );
+      }
 
       const data = response.data.data;
 
-      logger.info('Bank account verified', {
+      logger.info('Bank account verified via Flutterwave', {
         accountNumber,
         accountName: data.account_name,
       });
@@ -88,7 +85,7 @@ export class BankService {
       return {
         accountName: data.account_name,
         accountNumber: data.account_number,
-        bankCode: bankCode,
+        bankCode,
       };
     } catch (error: any) {
       logger.error('Bank verification failed', {
@@ -102,44 +99,31 @@ export class BankService {
     }
   }
 
-  /**
-   * Add bank account for user
-   */
+  // ============================================
+  // ADD BANK ACCOUNT
+  // ============================================
   static async addBankAccount(
     userId: string,
     accountNumber: string,
     bankCode: string
   ): Promise<any> {
     try {
-      // Verify account first
       const verified = await this.verifyBankAccount(accountNumber, bankCode);
-
-      // Get bank name
       const banks = await this.getNigerianBanks();
       const bank = banks.find((b) => b.code === bankCode);
 
-      if (!bank) {
-        throw new Error('Invalid bank code');
-      }
+      if (!bank) throw new Error('Invalid bank code');
 
-      // Check if account already exists
       const existing = await prisma.bankAccount.findFirst({
-        where: {
-          userId,
-          accountNumber,
-        },
+        where: { userId, accountNumber },
       });
 
-      if (existing) {
-        throw new Error('Bank account already added');
-      }
+      if (existing) throw new Error('Bank account already added');
 
-      // Check if user has any bank accounts
       const hasDefault = await prisma.bankAccount.findFirst({
         where: { userId, isDefault: true },
       });
 
-      // Create bank account
       const bankAccount = await prisma.bankAccount.create({
         data: {
           userId,
@@ -148,7 +132,7 @@ export class BankService {
           bankCode: verified.bankCode,
           bankName: bank.name,
           isVerified: true,
-          isDefault: !hasDefault, // First account is default
+          isDefault: !hasDefault,
         },
       });
 
@@ -161,19 +145,18 @@ export class BankService {
       return bankAccount;
     } catch (error: any) {
       logger.error('Failed to add bank account', {
-        error: error.message,
-        userId,
+        error: error.message, userId,
       });
       throw error;
     }
   }
 
-  /**
-   * Get user's bank accounts
-   */
+  // ============================================
+  // GET USER BANK ACCOUNTS
+  // ============================================
   static async getUserBankAccounts(userId: string): Promise<any[]> {
     try {
-      const accounts = await prisma.bankAccount.findMany({
+      return await prisma.bankAccount.findMany({
         where: { userId },
         orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }],
         select: {
@@ -187,38 +170,33 @@ export class BankService {
           createdAt: true,
         },
       });
-
-      return accounts;
     } catch (error: any) {
       logger.error('Failed to get bank accounts', {
-        error: error.message,
-        userId,
+        error: error.message, userId,
       });
       return [];
     }
   }
 
-  /**
-   * Set default bank account
-   */
-  static async setDefaultBankAccount(userId: string, accountId: string): Promise<void> {
+  // ============================================
+  // SET DEFAULT BANK ACCOUNT
+  // ============================================
+  static async setDefaultBankAccount(
+    userId: string,
+    accountId: string
+  ): Promise<void> {
     try {
-      // Verify account belongs to user
       const account = await prisma.bankAccount.findFirst({
         where: { id: accountId, userId },
       });
 
-      if (!account) {
-        throw new Error('Bank account not found');
-      }
+      if (!account) throw new Error('Bank account not found');
 
-      // Remove default from all accounts
       await prisma.bankAccount.updateMany({
         where: { userId },
         data: { isDefault: false },
       });
 
-      // Set new default
       await prisma.bankAccount.update({
         where: { id: accountId },
         data: { isDefault: true },
@@ -227,28 +205,26 @@ export class BankService {
       logger.info('Default bank account updated', { userId, accountId });
     } catch (error: any) {
       logger.error('Failed to set default bank account', {
-        error: error.message,
-        userId,
-        accountId,
+        error: error.message, userId, accountId,
       });
       throw error;
     }
   }
 
-  /**
-   * Delete bank account
-   */
-  static async deleteBankAccount(userId: string, accountId: string): Promise<void> {
+  // ============================================
+  // DELETE BANK ACCOUNT
+  // ============================================
+  static async deleteBankAccount(
+    userId: string,
+    accountId: string
+  ): Promise<void> {
     try {
       const account = await prisma.bankAccount.findFirst({
         where: { id: accountId, userId },
       });
 
-      if (!account) {
-        throw new Error('Bank account not found');
-      }
+      if (!account) throw new Error('Bank account not found');
 
-      // Check if account has pending withdrawals
       const pendingWithdrawals = await prisma.withdrawal.count({
         where: {
           bankAccountId: accountId,
@@ -260,17 +236,13 @@ export class BankService {
         throw new Error('Cannot delete account with pending withdrawals');
       }
 
-      await prisma.bankAccount.delete({
-        where: { id: accountId },
-      });
+      await prisma.bankAccount.delete({ where: { id: accountId } });
 
-      // If deleted account was default, set another as default
       if (account.isDefault) {
         const firstAccount = await prisma.bankAccount.findFirst({
           where: { userId },
           orderBy: { createdAt: 'asc' },
         });
-
         if (firstAccount) {
           await prisma.bankAccount.update({
             where: { id: firstAccount.id },
@@ -282,9 +254,7 @@ export class BankService {
       logger.info('Bank account deleted', { userId, accountId });
     } catch (error: any) {
       logger.error('Failed to delete bank account', {
-        error: error.message,
-        userId,
-        accountId,
+        error: error.message, userId, accountId,
       });
       throw error;
     }

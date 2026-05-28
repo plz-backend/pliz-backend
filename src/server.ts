@@ -13,10 +13,6 @@ import { GenericEmailService } from './services/email.service';
 import { LocationService } from './modules/Location/services/location.service';
 import { startBegMaintenanceCron } from './modules/Beg/beg_extend_notification/cron';
 
-
-
-
-
 const startServer = async (): Promise<void> => {
   try {
     validateEnv();
@@ -33,7 +29,7 @@ const startServer = async (): Promise<void> => {
     // 4. Initialize email service
     EmailService.initialize();
 
-    // 5. Initialize generic email service     ← add here
+    // 5. Initialize generic email service
     GenericEmailService.initialize();
 
     // 6. Preload emojis into Redis cache
@@ -49,13 +45,13 @@ const startServer = async (): Promise<void> => {
     // 7. Create Express app
     const app = createApp();
 
-    // 8. Wrap with HTTP server so Socket.io can attach
+    // 8. Wrap with HTTP server
     const server = http.createServer(app);
 
-    // 9. Initialize Socket.io (real-time notifications)
+    // 9. Initialize Socket.io
     initializeSocket(server);
 
-    // 10. Preload location data into cache
+    // 10. Preload location data
     try {
       await LocationService.getAllLocationData();
       logger.info('✅ Location data preloaded into cache');
@@ -83,7 +79,7 @@ const startServer = async (): Promise<void> => {
 ✅ PostgreSQL connected
 ✅ Redis connected
 ✅ Email service initialized
-✅ Socket.io initialized (real-time notifications)
+✅ Socket.io initialized
 ✅ Emojis preloaded into cache
 ✅ API Server started successfully
 
@@ -99,15 +95,14 @@ const startServer = async (): Promise<void> => {
 🎫 Support:       http://localhost:${PORT}/api/support
 🤖 AI Chat:       http://localhost:${PORT}/api/support/chat
 🖼️  Profile Pic:  http://localhost:${PORT}/api/profile-picture
-🪝 Webhook:       http://localhost:${PORT}/webhooks/paystack
+🪝 Webhook:       http://localhost:${PORT}/webhooks/flutterwave
 📍 Location:      http://localhost:${PORT}/api/location
 
 Environment: ${process.env.NODE_ENV || 'development'}
 Database:    PostgreSQL
 Cache:       Redis
-Email:       ${process.env.EMAIL_HOST || 'Not configured'}
-Payments:    Paystack
-Scheduler:    node-cron in API process
+Payments:    Flutterwave
+Scheduler:   node-cron in API process
       `);
 
       logger.info('API Server started successfully', { port: PORT });
@@ -128,17 +123,11 @@ Scheduler:    node-cron in API process
   }
 };
 
-// ============================================
-// GRACEFUL SHUTDOWN
-// Background queue workers were removed; scheduled maintenance runs via node-cron.
-// ============================================
 const gracefulShutdown = async (signal: string): Promise<void> => {
-  logger.info(`${signal} received, shutting down API server gracefully`);
-
+  logger.info(`${signal} received, shutting down gracefully`);
   await disconnectDB();
   await redisClient.disconnect();
-
-  logger.info('API server shutdown complete');
+  logger.info('Server shutdown complete');
   process.exit(0);
 };
 

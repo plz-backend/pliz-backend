@@ -26,7 +26,7 @@ router.get('/banks', getBanks);
 
 /**
  * @route   POST /api/withdrawals/resolve-account
- * @desc    Resolve account name via Paystack (does not save)
+ * @desc    Resolve account name via Flutterwave (does not save)
  * @access  Private
  */
 router.post('/resolve-account', authenticate, withdrawalLimiter, resolveBankAccount);
