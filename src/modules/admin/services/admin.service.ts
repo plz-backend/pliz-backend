@@ -186,6 +186,8 @@ export class AdminService {
     suspended?: boolean;
     underInvestigation?: boolean;
     role?: string;
+    /** customers = app users only (default); team = staff; all = everyone */
+    audience?: 'customers' | 'team' | 'all';
   }): Promise<any> {
     const page = filters.page || 1;
     const limit = filters.limit || 20;
@@ -195,7 +197,15 @@ export class AdminService {
     if (filters.suspended !== undefined) where.isSuspended = filters.suspended;
     if (filters.underInvestigation !== undefined)
       where.isUnderInvestigation = filters.underInvestigation;
-    if (filters.role) where.role = filters.role;
+
+    const audience = filters.audience ?? 'customers';
+    if (filters.role) {
+      where.role = filters.role;
+    } else if (audience === 'customers') {
+      where.role = 'user';
+    } else if (audience === 'team') {
+      where.role = { in: ['admin', 'superadmin'] };
+    }
 
     const [users, total] = await Promise.all([
       prisma.user.findMany({
@@ -301,6 +311,138 @@ export class AdminService {
         total_vat: withdrawalSum._sum.vatFee
           ? parseFloat(withdrawalSum._sum.vatFee.toString())
           : 0,
+      },
+    };
+  }
+
+  /**
+   * Time-series analytics for dashboard charts
+   */
+  static async getDashboardAnalytics(days = 30): Promise<{
+    rangeDays: number;
+    signupsByDay: { date: string; count: number }[];
+    donationsByDay: { date: string; count: number; amount: number }[];
+    withdrawalsByDay: { date: string; count: number; amount: number }[];
+    kycByDay: { date: string; verified: number; rejected: number }[];
+    opsErrorsLast24h: number;
+    pending: {
+      withdrawals: number;
+      begs: number;
+      kycUnderReview: number;
+    };
+  }> {
+    const rangeDays = Math.min(Math.max(days, 7), 90);
+    const since = new Date();
+    since.setUTCDate(since.getUTCDate() - rangeDays);
+    since.setUTCHours(0, 0, 0, 0);
+
+    const dayKey = (d: Date) => d.toISOString().slice(0, 10);
+
+    const fillDays = (): string[] => {
+      const keys: string[] = [];
+      for (let i = rangeDays - 1; i >= 0; i--) {
+        const d = new Date();
+        d.setUTCDate(d.getUTCDate() - i);
+        keys.push(dayKey(d));
+      }
+      return keys;
+    };
+
+    const dayKeys = fillDays();
+
+    const [users, donations, withdrawals, kycVerified, kycRejected, opsErrors, pendingWd, pendingBegs, kycReview] =
+      await Promise.all([
+        prisma.user.findMany({
+          where: { createdAt: { gte: since }, role: 'user' },
+          select: { createdAt: true },
+        }),
+        prisma.donation.findMany({
+          where: { createdAt: { gte: since }, status: 'success' },
+          select: { createdAt: true, amount: true },
+        }),
+        prisma.withdrawal.findMany({
+          where: { createdAt: { gte: since }, status: 'completed' },
+          select: { createdAt: true, amountToReceive: true },
+        }),
+        prisma.userVerification.findMany({
+          where: { verifiedAt: { gte: since } },
+          select: { verifiedAt: true },
+        }),
+        prisma.userVerification.findMany({
+          where: { rejectedAt: { gte: since } },
+          select: { rejectedAt: true },
+        }),
+        prisma.operationalEvent.count({
+          where: {
+            severity: 'error',
+            createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+          },
+        }),
+        prisma.withdrawal.count({ where: { status: 'pending' } }),
+        prisma.beg.count({ where: { approved: false } }),
+        prisma.userVerification.count({ where: { status: 'under_review' } }),
+      ]);
+
+    const signupMap = new Map(dayKeys.map((k) => [k, 0]));
+    users.forEach((u) => {
+      const k = dayKey(u.createdAt);
+      if (signupMap.has(k)) signupMap.set(k, (signupMap.get(k) ?? 0) + 1);
+    });
+
+    const donationMap = new Map(dayKeys.map((k) => [k, { count: 0, amount: 0 }]));
+    donations.forEach((d) => {
+      const k = dayKey(d.createdAt);
+      const cur = donationMap.get(k);
+      if (cur) {
+        cur.count += 1;
+        cur.amount += parseFloat(d.amount.toString());
+      }
+    });
+
+    const withdrawalMap = new Map(dayKeys.map((k) => [k, { count: 0, amount: 0 }]));
+    withdrawals.forEach((w) => {
+      const k = dayKey(w.createdAt);
+      const cur = withdrawalMap.get(k);
+      if (cur) {
+        cur.count += 1;
+        cur.amount += parseFloat(w.amountToReceive.toString());
+      }
+    });
+
+    const kycMap = new Map(dayKeys.map((k) => [k, { verified: 0, rejected: 0 }]));
+    kycVerified.forEach((v) => {
+      if (!v.verifiedAt) return;
+      const k = dayKey(v.verifiedAt);
+      const cur = kycMap.get(k);
+      if (cur) cur.verified += 1;
+    });
+    kycRejected.forEach((v) => {
+      if (!v.rejectedAt) return;
+      const k = dayKey(v.rejectedAt);
+      const cur = kycMap.get(k);
+      if (cur) cur.rejected += 1;
+    });
+
+    return {
+      rangeDays,
+      signupsByDay: dayKeys.map((date) => ({ date, count: signupMap.get(date) ?? 0 })),
+      donationsByDay: dayKeys.map((date) => {
+        const v = donationMap.get(date)!;
+        return { date, count: v.count, amount: Math.round(v.amount) };
+      }),
+      withdrawalsByDay: dayKeys.map((date) => {
+        const v = withdrawalMap.get(date)!;
+        return { date, count: v.count, amount: Math.round(v.amount) };
+      }),
+      kycByDay: dayKeys.map((date) => {
+        const v = kycMap.get(date)!;
+        return { date, verified: v.verified, rejected: v.rejected };
+      }),
+      opsErrorsLast24h: opsErrors,
+      pending: {
+        withdrawals: pendingWd,
+        begs: pendingBegs,
+        kycUnderReview: kycReview,
       },
     };
   }

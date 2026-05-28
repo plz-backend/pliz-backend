@@ -6,6 +6,7 @@ import {
   IApiResponse,
 } from '../../types/user.interface';
 import logger from '../../../../config/logger';
+import { buildStaffAuthFields } from '../../../admin/utils/admin-user-response';
 
 function initialsFromProfile(
   profile: { firstName?: string | null; lastName?: string | null } | null | undefined
@@ -170,6 +171,7 @@ export const getMe = async (
       isUnderInvestigation: user.isUnderInvestigation,  // Include investigation status
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
+      ...buildStaffAuthFields(user),
       profile: user.profile || null,  // Include profile data
       stats: statsSummary, // Include stats data
       verification: user.verification
@@ -179,9 +181,7 @@ export const getMe = async (
             isVerified: user.verification.isVerified,
             phoneVerified: user.verification.phoneVerified,
             documentVerified: user.verification.documentVerified,
-            faceLivenessPassed: ['liveness_passed', 'under_review', 'verified'].includes(
-              user.verification.status
-            ),
+            faceLivenessPassed: false,
             verifiedAt: user.verification.verifiedAt,
             rejectionReason: user.verification.rejectionReason,
             attemptCount: user.verification.attemptCount,

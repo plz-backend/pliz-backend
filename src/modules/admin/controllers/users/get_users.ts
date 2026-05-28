@@ -25,6 +25,7 @@ export const getUsers = async (req: Request, res: Response): Promise<void> => {
     const underInvestigation = req.query.underInvestigation === 'true' ? true :
                                req.query.underInvestigation === 'false' ? false : undefined;
     const role = req.query.role as string;
+    const audience = (req.query.audience as string) || 'customers';
 
     const result = await AdminService.getAllUsers({
       page,
@@ -32,6 +33,7 @@ export const getUsers = async (req: Request, res: Response): Promise<void> => {
       suspended,
       underInvestigation,
       role,
+      audience: audience as 'customers' | 'team' | 'all',
     });
 
     sendResponse(res, 200, {

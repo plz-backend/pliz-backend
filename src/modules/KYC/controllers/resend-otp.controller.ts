@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { PhoneVerificationService } from '../services/phone-verification.service';
 import { IApiResponse } from '../../auth/types/user.interface';
+import { PhoneOtpChannel } from '../types/kyc.interface';
 import logger from '../../../config/logger';
 
 const sendResponse = <T = any>(
@@ -11,9 +12,14 @@ const sendResponse = <T = any>(
   res.status(statusCode).json(response);
 };
 
+function parseOtpChannel(body: Record<string, unknown>): PhoneOtpChannel {
+  return body.channel === 'whatsapp' ? 'whatsapp' : 'sms';
+}
+
 /**
  * @route   POST /api/kyc/phone/resend-otp
  * @access  Private
+ * @body    { channel?: "sms" | "whatsapp" }
  */
 export const resendOTP = async (
   req: Request,
@@ -21,14 +27,17 @@ export const resendOTP = async (
 ): Promise<void> => {
   try {
     const userId = (req as any).user?.userId;
+    const channel = parseOtpChannel(req.body ?? {});
 
-    const result = await PhoneVerificationService.resendPhoneOTP(userId);
+    const result = await PhoneVerificationService.resendPhoneOTP(userId, channel);
+    const delivery = PhoneVerificationService.deliveryLabelForChannel(result.channel);
 
     sendResponse(res, 200, {
       success: true,
-      message: `New OTP sent! SMS sent to ${result.phoneNumber}. Valid for 10 minutes.`,
+      message: `New OTP sent! ${delivery} sent to ${result.phoneNumber}. Valid for 10 minutes.`,
       data: {
         phoneNumber: result.phoneNumber,
+        channel: result.channel,
       },
     });
   } catch (error: any) {

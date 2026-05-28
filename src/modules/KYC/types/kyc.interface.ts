@@ -1,4 +1,4 @@
-export type VerificationType = 'nin' | 'passport';
+export type VerificationType = 'nin';
 export type NINDocumentType = 'slip' | 'card';
 export type KYCStatus =
   | 'pending'
@@ -10,26 +10,23 @@ export type KYCStatus =
 
 export interface IUploadDocumentRequest {
   verificationType: VerificationType;
-  documentType: 'nin_front' | 'nin_back' | 'passport_biodata';
+  documentType: 'nin_front' | 'nin_back';
 
-  // NIN fields
   nin?: string;
   ninDocumentType?: NINDocumentType;
   ninMiddleName?: string;
   ninStateOfOrigin?: string;
   ninLGA?: string;
-
-  // Passport fields — middle name first then number
-  passportMiddleName?: string;
-  passportNumber?: string;
-  passportPlaceOfBirth?: string;
-  passportIssueDate?: string;    // YYYY-MM-DD
-  passportExpiry?: string;       // YYYY-MM-DD
-  passportPlaceOfIssue?: string;
 }
 
 export interface IVerifyPhoneOTPRequest {
   otp: string;
+}
+
+export type PhoneOtpChannel = 'sms' | 'whatsapp';
+
+export interface ISendPhoneOTPRequest {
+  channel?: PhoneOtpChannel;
 }
 
 // ============================================

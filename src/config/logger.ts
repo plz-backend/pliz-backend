@@ -1,70 +1,110 @@
 import winston from 'winston';
+import { getRequestContext } from './request-context';
 
-/**
- * Create a centralized logger instance for the application
- * Winston handles logging to files and console with different levels
- */
-const logger = winston.createLogger({
-  /**
-   * Log level depends on environment:
-   * - production → info and above
-   * - development → debug and above
-   */
-  level: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
+const SENSITIVE_KEYS = [
+  'password',
+  'token',
+  'authorization',
+  'cookie',
+  'secret',
+  'otp',
+  'phoneotp',
+  'api_key',
+  'apikey',
+];
 
-  /**
-   * Define how logs should be formatted
-   */
-  format: winston.format.combine(
-    // Add timestamp to every log entry
-    winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
+function sanitizeValue(obj: unknown): unknown {
+  if (typeof obj !== 'object' || obj === null) return obj;
 
-    // Capture and print full error stack traces
-    winston.format.errors({ stack: true }),
+  if (Array.isArray(obj)) {
+    return obj.map(sanitizeValue);
+  }
 
-    // Enable string interpolation (e.g. logger.info('%s logged in', user))
-    winston.format.splat(),
+  const record = obj as Record<string, unknown>;
+  const sanitized: Record<string, unknown> = {};
 
-    // Output logs in JSON format (good for log analysis tools)
-    winston.format.json()
-  ),
+  for (const [key, value] of Object.entries(record)) {
+    const lower = key.toLowerCase();
+    if (SENSITIVE_KEYS.some((s) => lower.includes(s))) {
+      sanitized[key] = '[REDACTED]';
+    } else if (typeof value === 'object' && value !== null) {
+      sanitized[key] = sanitizeValue(value);
+    } else {
+      sanitized[key] = value;
+    }
+  }
 
-  /**
-   * Default metadata added to every log entry
-   */
-  defaultMeta: { service: 'pliz-app' },
+  return sanitized;
+}
 
-  /**
-   * Define where logs are stored
-   */
-  transports: [
-    // Store only error-level logs in a separate file
+const attachRequestContext = winston.format((info) => {
+  const ctx = getRequestContext();
+  if (ctx?.requestId) info.requestId = ctx.requestId;
+  if (ctx?.userId) info.userId = ctx.userId;
+  if (ctx?.method) info.method = ctx.method;
+  if (ctx?.path) info.path = ctx.path;
+  return info;
+});
+
+const sanitizeMetadata = winston.format((info) => sanitizeValue(info) as winston.Logform.TransformableInfo);
+
+const isProduction = process.env.NODE_ENV === 'production';
+const logToFile = process.env.LOG_TO_FILE === 'true';
+
+const transports: winston.transport[] = [
+  new winston.transports.Console({
+    format: isProduction
+      ? winston.format.combine(
+          winston.format.timestamp(),
+          winston.format.errors({ stack: true }),
+          attachRequestContext(),
+          sanitizeMetadata(),
+          winston.format.json()
+        )
+      : winston.format.combine(
+          winston.format.colorize(),
+          winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
+          winston.format.errors({ stack: true }),
+          attachRequestContext(),
+          winston.format.printf(({ level, message, timestamp, requestId, userId, ...meta }) => {
+            let line = `${timestamp} [${level}]`;
+            if (requestId) line += ` [${requestId}]`;
+            if (userId) line += ` user=${userId}`;
+            line += `: ${message}`;
+            const rest = sanitizeValue(meta) as Record<string, unknown>;
+            const keys = Object.keys(rest).filter((k) => !['service', 'level', 'message', 'timestamp'].includes(k));
+            if (keys.length > 0) {
+              line += ` ${JSON.stringify(Object.fromEntries(keys.map((k) => [k, rest[k]])))}`;
+            }
+            return line;
+          })
+        ),
+  }),
+];
+
+if (logToFile) {
+  transports.push(
     new winston.transports.File({
       filename: 'logs/error.log',
       level: 'error',
+      format: winston.format.combine(
+        winston.format.timestamp(),
+        winston.format.errors({ stack: true }),
+        winston.format.json()
+      ),
     }),
-
-    // Store all logs (info, warn, error, etc.) in one file
     new winston.transports.File({
       filename: 'logs/combined.log',
-    }),
-  ],
-});
-
-/**
- * In development mode:
- * - Also log to the console
- * - Use colorized and human-readable output
- */
-if (process.env.NODE_ENV !== 'production') {
-  logger.add(
-    new winston.transports.Console({
-      format: winston.format.combine(
-        winston.format.colorize(), // Color log levels
-        winston.format.simple()    // Simple console-friendly format
-      ),
+      format: winston.format.combine(winston.format.timestamp(), winston.format.json()),
     })
   );
 }
+
+const logger = winston.createLogger({
+  level: process.env.LOG_LEVEL || (isProduction ? 'info' : 'debug'),
+  defaultMeta: { service: 'pliz-app' },
+  transports,
+  exitOnError: false,
+});
 
 export default logger;

@@ -1,4 +1,6 @@
 import { Request, Response } from 'express';
+import { AdminStaffRole } from '@prisma/client';
+import prisma from '../../../../config/database';
 import { UserService } from '../../services/user.service';
 import { IApiResponse, ICreateAdminRequest, UserRole } from '../../types/user.interface';
 import logger from '../../../../config/logger';
@@ -121,6 +123,15 @@ export const createAdminUser = async (
     // Note: Admin accounts are auto-verified (no email verification needed)
     if (user) {
       await UserService.verifyEmail(user.email);
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          adminStaffRole:
+            role === UserRole.superadmin ? AdminStaffRole.super_admin : AdminStaffRole.operations,
+          mustChangePassword: true,
+          isProfileComplete: true,
+        },
+      });
     }
 
     logger.info('Admin user created successfully', {

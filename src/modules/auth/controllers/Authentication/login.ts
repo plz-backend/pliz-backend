@@ -8,6 +8,7 @@ import {
   IApiResponse,
 } from '../../types/user.interface';
 import logger from '../../../../config/logger';
+import { toUserResponse } from '../../../admin/utils/admin-user-response';
 
 
 
@@ -71,7 +72,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
     // ============================================
     // CHECK EMAIL VERIFICATION
     // ============================================
-    if (!user.isEmailVerified) {
+    if (!user.isEmailVerified && user.role === 'user') {
       logger.warn('Login failed: Email not verified', {
         userId: user.id,
         email,
@@ -100,6 +101,18 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
+    if (
+      (user.role === 'admin' || user.role === 'superadmin') &&
+      user.isTeamDisabled
+    ) {
+      logger.warn('Login failed: Team access disabled', { userId: user.id, email });
+      sendResponse(res, 403, {
+        success: false,
+        message: 'Your admin access has been disabled. Contact your super admin.',
+      });
+      return;
+    }
+
     const { accessToken, refreshToken: finalRefreshToken } =
       await createSessionAndTokens(req, user);
 
@@ -112,19 +125,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
     // ============================================
     // PREPARE RESPONSE
     // ============================================
-    const userResponse: IUserResponse = {
-      id: user.id,
-      username: user.username,
-      email: user.email,
-      role: user.role,
-      isEmailVerified: user.isEmailVerified,
-      emailVerifiedAt: user.emailVerifiedAt,
-      isProfileComplete: user.isProfileComplete,
-      isSuspended: user.isSuspended,
-      isUnderInvestigation: user.isUnderInvestigation,
-      createdAt: user.createdAt,
-      updatedAt: user.updatedAt,
-    };
+    const userResponse: IUserResponse = toUserResponse(user);
 
     const response: IApiResponse<{
       user: IUserResponse;

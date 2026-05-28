@@ -15,6 +15,7 @@ import { getMe } from '../controllers/Authentication/get_me';
 import { refreshToken } from '../controllers/Authentication/refresh_token';
 import { invalidateRefreshCookie } from '../controllers/Authentication/invalidate_refresh_cookie';
 import { createAdminUser } from '../controllers/Authentication/create_admin_user';
+import { acceptAdminInvite } from '../controllers/Authentication/accept_admin_invite';
 import { googleLogin, appleLogin } from '../controllers/Authentication/oauth.controller';
 import { googleLoginValidation, appleLoginValidation } from '../middleware/auth/oauth.validation';
 
@@ -23,6 +24,8 @@ import { googleLoginValidation, appleLoginValidation } from '../middleware/auth/
 import { authenticate } from '../middleware/auth/auth';
 import { validateRequest } from '../middleware/auth/validateRequest';
 import { requireAdmin } from '../../admin/middleware/admin_auth';
+import { requirePermission } from '../../admin/middleware/requirePermission';
+import { AdminPermission } from '../../admin/permissions';
 
 // Validations
 import {
@@ -225,19 +228,23 @@ router.post('/google', authLimiter, googleLoginValidation, validateRequest, goog
 router.post('/apple', authLimiter, appleLoginValidation, validateRequest, appleLogin);
 
 // ============================================
+// ADMIN TEAM INVITE (PUBLIC)
+// ============================================
+router.post('/admin/accept-invite', authLimiter, acceptAdminInvite);
+
+// ============================================
 // ADMIN ROUTES (PROTECTED)
 // ============================================
 
 /**
- * @route   POST /api/auth/admin/create-user
- * @desc    Create admin or superadmin user
- * @access  Admin/SuperAdmin only
+ * @deprecated Prefer POST /api/admin/team/invite — kept for super admin tooling
  */
 router.post(
   '/admin/create-user',
   authenticate,
   requireAdmin,
-  authLimiter,  
+  requirePermission(AdminPermission.TEAM_MANAGE),
+  authLimiter,
   createAdminUser
 );
 

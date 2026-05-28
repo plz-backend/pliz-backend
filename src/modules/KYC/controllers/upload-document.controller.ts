@@ -9,7 +9,7 @@ const sendResponse = <T = any>(res: Response, statusCode: number, response: IApi
 
 /**
  * @route   POST /api/kyc/document/upload
- * @desc    Upload document with form data
+ * @desc    Upload NIN document with form data
  * @access  Private
  *
  * NIN FormData:
@@ -22,19 +22,6 @@ const sendResponse = <T = any>(res: Response, statusCode: number, response: IApi
  *   ninMiddleName: "Optional",
  *   ninStateOfOrigin: "Lagos",
  *   ninLGA: "Ikeja"
- * }
- *
- * Passport FormData:
- * {
- *   document: file,
- *   verificationType: "passport",
- *   documentType: "passport_biodata",
- *   passportNumber: "A12345678",
- *   passportMiddleName: "Optional",
- *   passportPlaceOfBirth: "Lagos",
- *   passportIssueDate: "2020-01-01",
- *   passportExpiry: "2030-01-01",
- *   passportPlaceOfIssue: "Abuja"
  * }
  */
 export const uploadDocument = async (req: Request, res: Response): Promise<void> => {
@@ -53,9 +40,6 @@ export const uploadDocument = async (req: Request, res: Response): Promise<void>
       verificationType, documentType,
       nin, ninDocumentType, ninMiddleName,
       ninStateOfOrigin, ninLGA,
-      passportNumber, passportMiddleName,
-      passportPlaceOfBirth, passportIssueDate,
-      passportExpiry, passportPlaceOfIssue,
     } = req.body;
 
     const result = await KYCService.uploadDocument(
@@ -67,13 +51,10 @@ export const uploadDocument = async (req: Request, res: Response): Promise<void>
         documentType,
         nin, ninDocumentType, ninMiddleName,
         ninStateOfOrigin, ninLGA,
-        passportNumber, passportMiddleName,
-        passportPlaceOfBirth, passportIssueDate,
-        passportExpiry, passportPlaceOfIssue,
       }
     );
 
-    let message = 'Document uploaded and verified. Please proceed to face liveness check.';
+    let message = 'Document uploaded successfully. Submit your verification when ready.';
 
     if (
       verificationType === 'nin' &&
@@ -96,6 +77,7 @@ export const uploadDocument = async (req: Request, res: Response): Promise<void>
       error.message.includes('expired') ? 400 :
       error.message.includes('required') ? 400 :
       error.message.includes('must be') ? 400 :
+      error.message.includes('supported') ? 400 :
       error.message.includes('digits') ? 400 :
       error.message.includes('format') ? 400 : 500;
     sendResponse(res, statusCode, { success: false, message: error.message });

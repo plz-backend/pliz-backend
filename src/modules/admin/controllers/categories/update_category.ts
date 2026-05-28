@@ -35,11 +35,11 @@ function generateSlug(name: string): string {
  * @access  Admin
  */
 export const updateCategory = async (
-  req: Request<CategoryParams>,
+  req: Request,
   res: Response
 ): Promise<void> => {
   try {
-    const { id } = req.params;
+    const id = String(req.params.id);
     const { name, icon, description, isActive } = req.body;
     const adminId = (req as any).user?.userId;
     const ip = req.ip || req.headers['x-forwarded-for'] as string || 'unknown';

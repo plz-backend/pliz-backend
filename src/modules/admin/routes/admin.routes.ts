@@ -1,39 +1,38 @@
 import { Router } from 'express';
 import { authenticate } from '../../auth/middleware/auth/auth';
 import { requireAdmin } from '../middleware/admin_auth';
+import {
+  requirePasswordChanged,
+  requirePermission,
+} from '../middleware/requirePermission';
+import { AdminPermission } from '../permissions';
 
-// User Management
 import { getUsers } from '../controllers/users/get_users';
 import { suspendUser } from '../controllers/users/suspend_user';
 import { unsuspendUser } from '../controllers/users/unsuspend_user';
 import { investigateUser } from '../controllers/users/investigate_user';
 import { closeInvestigation } from '../controllers/users/close_investigation';
 
-// Withdrawal Management
 import { getAllWithdrawals } from '../controllers/withdrawals/get_all_withdrawals';
 import { processWithdrawal } from '../controllers/withdrawals/process_withdrawal';
 import { rejectWithdrawal } from '../controllers/withdrawals/reject_withdrawal';
 
-// Analytics
 import { getDashboardStats } from '../controllers/analytics/get_dashboard_stats';
+import { getDashboardAnalytics } from '../controllers/analytics/get_dashboard_analytics';
 
-// Activity Log
 import { getAdminActions } from '../controllers/activity/get_admin_actions';
+import { getOperationalEvents } from '../controllers/activity/get-operational-events';
 
-// Begs (already exist in your code - just import)
 import { getAllBegs } from '../controllers/begs/get_all_begs';
 import { approveBeg } from '../controllers/begs/approve_beg';
 import { rejectBeg } from '../controllers/begs/reject_beg';
 import { deleteBeg } from '../controllers/begs/delete_beg';
 
-// Categories (already exist)
 import { createCategory } from '../controllers/categories/create_category';
 import { updateCategory } from '../controllers/categories/update_category';
 import { deleteCategory } from '../controllers/categories/delete_category';
 import { getCategories } from '../controllers/categories/get_categories';
 
-
-// Story Management
 import {
   adminGetStories,
   adminGetStoryById,
@@ -48,7 +47,6 @@ import {
 } from '../../Story/validations/story.validation';
 import { validateRequest } from '../../auth/middleware/auth/validateRequest';
 
-// Support Ticket Management 
 import { getAllTickets } from '../controllers/Support/get-all-tickets.controller';
 import { adminReply } from '../controllers/Support/admin-reply.controller';
 import { assignTicket } from '../controllers/Support/assign-ticket.controller';
@@ -58,7 +56,6 @@ import {
   updateStatusValidation,
 } from '../../Support/validations/support.validation';
 
-// KYC Management
 import { getAllVerifications } from '../controllers/KYC/get-all-verifications.controller';
 import { getVerification } from '../controllers/KYC/get-verification.controller';
 import { manuallyVerify } from '../controllers/KYC/manually-verify.controller';
@@ -69,82 +66,62 @@ import {
   manuallyRejectValidation,
 } from '../../KYC/validations/kyc.validation';
 
+import { getTeamMembers } from '../controllers/team/get-team.controller';
+import { inviteTeamMember } from '../controllers/team/invite-team.controller';
+import { updateTeamMember } from '../controllers/team/update-team.controller';
 
 const router = Router();
 
-// All admin routes require authentication + admin role
-router.use(authenticate, requireAdmin);
+router.use(authenticate, requireAdmin, requirePasswordChanged);
 
-// ============================================
-// USER MANAGEMENT
-// ============================================
-router.get('/users', getUsers);
-router.post('/users/:id/suspend', suspendUser);
-router.post('/users/:id/unsuspend', unsuspendUser);
-router.post('/users/:id/investigate', investigateUser);
-router.post('/users/:id/close-investigation', closeInvestigation);
+const p = requirePermission;
 
-// ============================================
-// WITHDRAWAL MANAGEMENT
-// ============================================
-router.get('/withdrawals', getAllWithdrawals);
-router.post('/withdrawals/:id/process', processWithdrawal);
-router.post('/withdrawals/:id/reject', rejectWithdrawal);
+router.get('/dashboard/stats', p(AdminPermission.DASHBOARD_VIEW), getDashboardStats);
+router.get('/dashboard/analytics', p(AdminPermission.DASHBOARD_VIEW), getDashboardAnalytics);
 
-// ============================================
-// BEG MANAGEMENT
-// ============================================
+router.get('/team', p(AdminPermission.TEAM_MANAGE), getTeamMembers);
+router.post('/team/invite', p(AdminPermission.TEAM_MANAGE), inviteTeamMember);
+router.patch('/team/:id', p(AdminPermission.TEAM_MANAGE), updateTeamMember);
 
-router.get('/begs', getAllBegs);
-router.patch('/begs/:id/approve', approveBeg);
-router.patch('/begs/:id/reject', rejectBeg);
-router.delete('/begs/:id', deleteBeg);
+router.get('/users', p(AdminPermission.USERS_VIEW), getUsers);
+router.post('/users/:id/suspend', p(AdminPermission.USERS_MODERATE), suspendUser);
+router.post('/users/:id/unsuspend', p(AdminPermission.USERS_MODERATE), unsuspendUser);
+router.post('/users/:id/investigate', p(AdminPermission.USERS_MODERATE), investigateUser);
+router.post('/users/:id/close-investigation', p(AdminPermission.USERS_MODERATE), closeInvestigation);
 
-// ============================================
-// CATEGORY MANAGEMENT
-// ============================================
-router.post('/categories', createCategory);
-router.patch('/categories/:id', updateCategory);
-router.delete('/categories/:id', deleteCategory);
-router.get('/categories', getCategories);
+router.get('/withdrawals', p(AdminPermission.WITHDRAWALS_VIEW), getAllWithdrawals);
+router.post('/withdrawals/:id/process', p(AdminPermission.WITHDRAWALS_PROCESS), processWithdrawal);
+router.post('/withdrawals/:id/reject', p(AdminPermission.WITHDRAWALS_PROCESS), rejectWithdrawal);
 
-// ============================================
-// ANALYTICS & DASHBOARD
-// ============================================
-router.get('/dashboard/stats', getDashboardStats);
+router.get('/begs', p(AdminPermission.BEGS_VIEW), getAllBegs);
+router.patch('/begs/:id/approve', p(AdminPermission.BEGS_MODERATE), approveBeg);
+router.patch('/begs/:id/reject', p(AdminPermission.BEGS_MODERATE), rejectBeg);
+router.delete('/begs/:id', p(AdminPermission.BEGS_MODERATE), deleteBeg);
 
-// ============================================
-// ACTIVITY LOG
-// ============================================
-router.get('/activity', getAdminActions);
+router.get('/categories', p(AdminPermission.CATEGORIES_MANAGE), getCategories);
+router.post('/categories', p(AdminPermission.CATEGORIES_MANAGE), createCategory);
+router.patch('/categories/:id', p(AdminPermission.CATEGORIES_MANAGE), updateCategory);
+router.delete('/categories/:id', p(AdminPermission.CATEGORIES_MANAGE), deleteCategory);
 
-// ============================================
-// STORY MANAGEMENT
-// ============================================
+router.get('/activity', p(AdminPermission.ACTIVITY_VIEW), getAdminActions);
+router.get('/operational-events', p(AdminPermission.OPS_VIEW), getOperationalEvents);
 
-router.get('/stories', adminGetStories);
-router.get('/stories/:id', storyIdValidation, validateRequest, adminGetStoryById);
-router.patch('/stories/:id/approve', storyIdValidation, validateRequest, adminApproveStory);
-router.patch('/stories/:id/reject', rejectStoryValidation, validateRequest, adminRejectStory);
-router.patch('/stories/:id/toggle-visibility', storyIdValidation, validateRequest, adminToggleVisibility);
-router.delete('/stories/:id', storyIdValidation, validateRequest, adminDeleteStory);
+router.get('/stories', p(AdminPermission.STORIES_VIEW), adminGetStories);
+router.get('/stories/:id', p(AdminPermission.STORIES_VIEW), storyIdValidation, validateRequest, adminGetStoryById);
+router.patch('/stories/:id/approve', p(AdminPermission.STORIES_MODERATE), storyIdValidation, validateRequest, adminApproveStory);
+router.patch('/stories/:id/reject', p(AdminPermission.STORIES_MODERATE), rejectStoryValidation, validateRequest, adminRejectStory);
+router.patch('/stories/:id/toggle-visibility', p(AdminPermission.STORIES_MODERATE), storyIdValidation, validateRequest, adminToggleVisibility);
+router.delete('/stories/:id', p(AdminPermission.STORIES_MODERATE), storyIdValidation, validateRequest, adminDeleteStory);
 
-// ============================================
-// SUPPORT TICKET MANAGEMENT (optional)
-// ============================================
-router.get('/tickets', getAllTickets);
-router.post('/tickets/:id/reply', adminReplyValidation, validateRequest, adminReply);
-router.patch('/tickets/:id/assign', assignTicket);
-router.patch('/tickets/:id/status', updateStatusValidation, validateRequest, updateTicketStatus);
+router.get('/tickets', p(AdminPermission.USERS_VIEW), getAllTickets);
+router.post('/tickets/:id/reply', p(AdminPermission.USERS_MODERATE), adminReplyValidation, validateRequest, adminReply);
+router.patch('/tickets/:id/assign', p(AdminPermission.USERS_MODERATE), assignTicket);
+router.patch('/tickets/:id/status', p(AdminPermission.USERS_MODERATE), updateStatusValidation, validateRequest, updateTicketStatus);
 
-// ============================================
-// KYC MANAGEMENT
-// ============================================
-router.get('/kyc/stats', getVerificationStats);
-router.get('/kyc', getAllVerifications);
-router.get('/kyc/:userId', getVerification);
-router.patch('/kyc/:userId/verify', manuallyVerifyValidation, validateRequest, manuallyVerify);
-router.patch('/kyc/:userId/reject', manuallyRejectValidation, validateRequest, manuallyReject);
-
+router.get('/kyc/stats', p(AdminPermission.KYC_VIEW), getVerificationStats);
+router.get('/kyc', p(AdminPermission.KYC_VIEW), getAllVerifications);
+router.get('/kyc/:userId', p(AdminPermission.KYC_VIEW), getVerification);
+router.patch('/kyc/:userId/verify', p(AdminPermission.KYC_MODERATE), manuallyVerifyValidation, validateRequest, manuallyVerify);
+router.patch('/kyc/:userId/reject', p(AdminPermission.KYC_MODERATE), manuallyRejectValidation, validateRequest, manuallyReject);
 
 export default router;

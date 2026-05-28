@@ -38,11 +38,11 @@ interface BegParams {
  * @access  Admin
  */
 export const approveBeg = async (
-  req: Request<BegParams>,
+  req: Request,
   res: Response
 ): Promise<void> => {
   try {
-    const { id } = req.params;
+    const id = String(req.params.id);
     const adminId = (req as any).user?.userId;
     const ip = req.ip || req.headers['x-forwarded-for'] as string || 'unknown';
 

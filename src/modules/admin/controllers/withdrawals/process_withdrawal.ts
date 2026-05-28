@@ -22,11 +22,11 @@ interface WithdrawalParams {
  * @access  Admin
  */
 export const processWithdrawal = async (
-  req: Request<WithdrawalParams>,
+  req: Request,
   res: Response
 ): Promise<void> => {
   try {
-    const { id } = req.params;
+    const id = String(req.params.id);
     const adminId = (req as any).user?.userId;
     const ip = req.ip || req.headers['x-forwarded-for'] as string || 'unknown';
 
