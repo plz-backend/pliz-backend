@@ -17,7 +17,8 @@
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:migrate:status": "prisma migrate status",
     "seed": "ts-node prisma/seed.ts",
-    "create-superadmin": "ts-node src/scripts/create_superadmin.ts"
+    "create-superadmin": "ts-node src/scripts/create_superadmin.ts",
+    "bootstrap-admin": "ts-node src/scripts/bootstrap-admin.ts"
   },
   "keywords": [
     "auth",

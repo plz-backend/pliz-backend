@@ -175,6 +175,8 @@ export class UserService {
         where: { id: userId },
         data: {
           passwordHash: hashedPassword,
+          mustChangePassword: false,
+          passwordChangedAt: new Date(),
           updatedAt: new Date(),
         },
       });

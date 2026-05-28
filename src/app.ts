@@ -1,4 +1,4 @@
-import express, { Express, Request, Response } from 'express';
+import express, { Express, Request, Response, NextFunction } from 'express';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -6,6 +6,7 @@ import morgan from 'morgan';
 import path from 'path';
 import { IApiResponse } from './modules/auth/types/user.interface';
 import { errorLogger } from './logger/logger-middleware';
+import { requestLoggerMiddleware, globalErrorHandler } from './middleware/request-logger.middleware';
 
 // Routes
 import authRoutes from './modules/auth/routes/authRoutes';
@@ -70,6 +71,9 @@ export const createApp = (): Express => {
   // Body parsing
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
+
+  // Request ID + structured logging (Cloud Run stdout)
+  app.use(requestLoggerMiddleware);
 
   // Request logging
   if (process.env.NODE_ENV !== 'production') {
@@ -175,18 +179,15 @@ export const createApp = (): Express => {
     res.status(404).json(response);
   });
 
-  // Error logging middleware
-  app.use(errorLogger);
-
-  // Global error handler
-  app.use((error: any, req: Request, res: Response, next: any) => {
-    console.error('Global error handler:', error);
-    const response: IApiResponse = {
-      success: false,
-      message: error.message || 'Internal server error',
-    };
-    res.status(error.status || 500).json(response);
+  // Error logging middleware (legacy — no-op if req.logger missing)
+  app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
+    if ((req as Request & { logger?: { error: (msg: string, meta?: unknown) => void } }).logger) {
+      return errorLogger(err, req, res, next);
+    }
+    next(err);
   });
+
+  app.use(globalErrorHandler);
 
   return app;
 };

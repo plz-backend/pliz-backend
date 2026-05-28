@@ -3,6 +3,7 @@ import { TokenService } from '../../services/tokenService';
 import { CacheService } from '../../services/cacheService';
 import { IJWTPayload, IApiResponse } from '../../types/user.interface';
 import logger from '../../../../config/logger';
+import { setRequestUserId } from '../../../../config/request-context';
 
 // Extend Express Request type
 declare global {
@@ -80,6 +81,7 @@ export const authenticate = async (
 
     // Attach user to request
     req.user = decoded;
+    setRequestUserId(decoded.userId);
 
     logger.debug('User authenticated successfully', {
       userId: decoded.userId,
@@ -127,6 +129,7 @@ export const authenticateOptional = async (
     const decoded = TokenService.verifyAccessToken(token);
     if (decoded) {
       req.user = decoded;
+      setRequestUserId(decoded.userId);
     }
     next();
   } catch {

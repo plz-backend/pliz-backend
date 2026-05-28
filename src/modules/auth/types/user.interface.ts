@@ -70,6 +70,9 @@ export interface IUserResponse {
   isProfileComplete: boolean;
   isSuspended: boolean;
   isUnderInvestigation: boolean;
+  mustChangePassword?: boolean;
+  adminStaffRole?: string | null;
+  permissions?: string[];
   createdAt: Date;
   updatedAt: Date;
   profile?: IUserProfile | null;

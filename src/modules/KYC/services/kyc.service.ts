@@ -7,6 +7,7 @@ import { maskPhoneForLog } from '../../../utils/sanitize-log';
 import { PhoneVerificationService } from './phone-verification.service';
 import { IdentityVerificationService } from './identity-verification.service';
 import { KYCDocumentUploadService } from './document-upload.service';
+import { OperationalEventService } from '../../../services/operational-event.service';
 import {
   IUploadDocumentRequest,
   IKYCResponse,
@@ -693,6 +694,15 @@ export class KYCService {
         await TrustScoreService.invalidateTrustScoreCache(userId);
 
         logger.info('KYC verified successfully', { userId });
+
+        OperationalEventService.record({
+          userId,
+          eventType: 'kyc.identity.verified',
+          severity: 'info',
+          message: 'Identity verified via NIN',
+          source: 'kyc',
+          metadata: { verificationType: verification.verificationType },
+        });
       } else {
         await this.rejectKYC(userId, result.error!, verification.attemptCount);
       }
@@ -706,6 +716,15 @@ export class KYCService {
       });
       logger.error('Verification error — kept under_review', {
         error: error.message, userId,
+      });
+
+      OperationalEventService.record({
+        userId,
+        eventType: 'kyc.identity.verification_error',
+        severity: 'error',
+        message: error.message || 'KYC verification error',
+        source: 'kyc',
+        metadata: { error: error.message },
       });
     }
   }
@@ -743,6 +762,18 @@ export class KYCService {
     });
 
     logger.warn('KYC rejected', { userId, reason });
+
+    OperationalEventService.record({
+      userId,
+      eventType: 'kyc.identity.rejected',
+      severity: 'warn',
+      message: reason,
+      source: 'kyc',
+      metadata: {
+        attemptsRemaining,
+        attemptCount: currentAttemptCount,
+      },
+    });
   }
 
   // ============================================

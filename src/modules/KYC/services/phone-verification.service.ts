@@ -2,6 +2,7 @@ import prisma from '../../../config/database';
 import axios from 'axios';
 import logger from '../../../config/logger';
 import { maskPhoneForLog } from '../../../utils/sanitize-log';
+import { OperationalEventService } from '../../../services/operational-event.service';
 import { PhoneOtpChannel } from '../types/kyc.interface';
 
 const OTP_EXPIRY_MINUTES = 10;
@@ -103,10 +104,13 @@ export class PhoneVerificationService {
 
       await this.issuePhoneOtp(userId, profile.phoneNumber, channel);
 
-      logger.info('Phone OTP sent', {
+      OperationalEventService.record({
         userId,
-        phone: maskPhoneForLog(profile.phoneNumber),
-        channel,
+        eventType: 'kyc.phone_otp.sent',
+        severity: 'info',
+        message: `OTP sent via ${channelDeliveryLabel(channel)}`,
+        source: 'kyc',
+        metadata: { channel, phone: maskPhoneForLog(profile.phoneNumber) },
       });
 
       return {
@@ -114,10 +118,13 @@ export class PhoneVerificationService {
         channel,
       };
     } catch (error: any) {
-      logger.error('Failed to send phone OTP', {
-        error: error.message,
+      OperationalEventService.record({
         userId,
-        channel,
+        eventType: 'kyc.phone_otp.send_failed',
+        severity: 'error',
+        message: error.message || 'Failed to send phone OTP',
+        source: 'kyc',
+        metadata: { channel, error: error.message },
       });
       throw error;
     }
@@ -167,17 +174,27 @@ export class PhoneVerificationService {
 
       await this.issuePhoneOtp(userId, profile.phoneNumber, channel);
 
-      logger.info('Phone OTP resent', { userId, channel });
+      OperationalEventService.record({
+        userId,
+        eventType: 'kyc.phone_otp.resent',
+        severity: 'info',
+        message: `OTP resent via ${channelDeliveryLabel(channel)}`,
+        source: 'kyc',
+        metadata: { channel },
+      });
 
       return {
         phoneNumber: this.maskPhoneNumber(profile.phoneNumber),
         channel,
       };
     } catch (error: any) {
-      logger.error('Failed to resend phone OTP', {
-        error: error.message,
+      OperationalEventService.record({
         userId,
-        channel,
+        eventType: 'kyc.phone_otp.resend_failed',
+        severity: 'error',
+        message: error.message || 'Failed to resend phone OTP',
+        source: 'kyc',
+        metadata: { channel, error: error.message },
       });
       throw error;
     }
@@ -234,11 +251,21 @@ export class PhoneVerificationService {
         },
       });
 
-      logger.info('Phone OTP verified', { userId });
-    } catch (error: any) {
-      logger.error('Phone OTP verification failed', {
-        error: error.message,
+      OperationalEventService.record({
         userId,
+        eventType: 'kyc.phone_otp.verified',
+        severity: 'info',
+        message: 'Phone number verified successfully',
+        source: 'kyc',
+      });
+    } catch (error: any) {
+      OperationalEventService.record({
+        userId,
+        eventType: 'kyc.phone_otp.verify_failed',
+        severity: 'error',
+        message: error.message || 'Phone OTP verification failed',
+        source: 'kyc',
+        metadata: { error: error.message },
       });
       throw error;
     }
