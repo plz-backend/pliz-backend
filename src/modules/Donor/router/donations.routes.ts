@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { initializeDonation } from '../controllers/initialize_donation';
-import { verifyDonation } from '../controllers/verify_donation';
+import { verifyDonation, verifyDonationGet } from '../controllers/verify_donation';
 import { getBegDonations } from '../controllers/get_beg_donations';
 import { getMyDonations } from '../controllers/get_my_donations';
 import { getDonorRank } from '../controllers/get_donor_rank';
@@ -9,7 +9,10 @@ import { sendDonorReply } from '../controllers/send_donor_reply';
 import { getDonorMessages, getRecipientMessages } from '../controllers/get_messages';
 import { authenticate } from '../../auth/middleware/auth/auth';
 import { checkAccountStatus } from '../../auth/middleware/auth/account_status.middleware';
-import { generalLimiter } from '../../auth/middleware/auth/rateLimiter';
+import {
+  donationVerifyLimiter,
+  generalLimiter,
+} from '../../auth/middleware/auth/rateLimiter';
 
 const router = Router();
 
@@ -29,6 +32,14 @@ router.post(
   generalLimiter,
   initializeDonation
 );
+
+/**
+ * @route   GET /api/donations/verify
+ * @desc    Verify payment by reference (mobile polling / web redirect)
+ * @access  Public
+ * @query   reference | tx_ref | trxref | transaction_id | status
+ */
+router.get('/verify', donationVerifyLimiter, verifyDonationGet);
 
 /**
  * @route   POST /api/donations/verify

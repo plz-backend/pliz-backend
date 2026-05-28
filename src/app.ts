@@ -17,7 +17,7 @@ import kycRoutes from './modules/KYC/routes/kyc.routes';
 import begRoutes from './modules/Beg/routers/beg.routers';
 import donorRoutes from './modules/Donor/router/donations.routes';
 import notificationRoutes from './modules/notifications/routes/notification.routes';
-import flutterwaveWebhookRoutes from '../../pliz-backend/src/webhooks/flutterwave.webhook'
+import flutterwaveWebhookRoutes from './webhooks/flutterwave.webhook';
 import adminRoutes from './modules/admin/routes/admin.routes';
 import paymentMethodRoutes from './modules/Payment/router/payment_method.routes';
 import withdrawalRoutes from './modules/Withdrawal/router/withdrawal.routes';

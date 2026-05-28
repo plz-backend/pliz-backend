@@ -116,6 +116,23 @@ export const supportLimiter = rateLimit({
   handler: rateLimitHandler,
 });
 
+/**
+ * Donation payment verify polling — separate bucket from generalLimiter.
+ * Mobile/web poll every ~2s while Flutterwave confirms; must not exhaust the
+ * shared general limit and block begs, auth, etc.
+ */
+export const donationVerifyLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000, // 5 minutes
+  max: 120, // ~24 polls/min — enough for one checkout without starving other routes
+  message: {
+    success: false,
+    message: 'Too many verification attempts. Please wait a moment and try again.',
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: rateLimitHandler,
+});
+
 /** Reactions — 60 per 15 minutes */
 export const reactionLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,

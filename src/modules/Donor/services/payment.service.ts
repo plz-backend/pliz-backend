@@ -8,11 +8,40 @@ const getHeaders = () => ({
   Authorization: `Bearer ${process.env.FLW_SECRET_KEY}`,
 });
 
-export class PaymentService {
+type VerifiedTransaction = {
+  amount: number;
+  currency: string;
+  txRef: string;
+  flwRef: string;
+  status: string;
+  paymentMethod: string;
+  customerEmail: string;
+  meta?: unknown;
+};
 
-  // ============================================
-  // INITIALIZE PAYMENT
-  // ============================================
+export type PaymentVerificationResult = {
+  success: boolean;
+  verified: boolean;
+  pending?: boolean;
+  data?: VerifiedTransaction;
+  error?: string;
+};
+
+function mapFlutterwaveTransaction(transaction: Record<string, unknown>): VerifiedTransaction {
+  const customer = transaction.customer as { email?: string } | undefined;
+  return {
+    amount: Number(transaction.amount),
+    currency: String(transaction.currency ?? 'NGN'),
+    txRef: String(transaction.tx_ref),
+    flwRef: String(transaction.flw_ref ?? ''),
+    status: String(transaction.status),
+    paymentMethod: String(transaction.payment_type ?? 'card'),
+    customerEmail: customer?.email ?? '',
+    meta: transaction.meta,
+  };
+}
+
+export class PaymentService {
   static async initializePayment(data: {
     email: string;
     amount: number;
@@ -30,7 +59,7 @@ export class PaymentService {
     try {
       const redirectUrl =
         data.redirectUrl?.trim() ||
-        `${process.env.FRONTEND_URL}/donations/verify`;
+        `${process.env.FRONTEND_URL}/payment/callback`;
 
       const response = await axios.post(
         `${FLW_BASE_URL}/payments`,
@@ -58,10 +87,7 @@ export class PaymentService {
         { headers: getHeaders(), timeout: 30000 }
       );
 
-      if (
-        response.data?.status !== 'success' ||
-        !response.data?.data?.link
-      ) {
+      if (response.data?.status !== 'success' || !response.data?.data?.link) {
         return {
           success: false,
           reference: data.reference,
@@ -80,9 +106,10 @@ export class PaymentService {
         paymentUrl: response.data.data.link,
         reference: data.reference,
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: unknown }; message?: string };
       logger.error('Flutterwave initialization failed', {
-        error: error.response?.data || error.message,
+        error: err.response?.data || err.message,
         reference: data.reference,
       });
       return {
@@ -93,31 +120,14 @@ export class PaymentService {
     }
   }
 
-  // ============================================
-  // VERIFY TRANSACTION
-  // ============================================
-  static async verifyTransaction(transactionId: string): Promise<{
-    success: boolean;
-    verified: boolean;
-    data?: {
-      amount: number;
-      currency: string;
-      txRef: string;
-      flwRef: string;
-      status: string;
-      paymentMethod: string;
-      customerEmail: string;
-      meta?: any;
-    };
-    error?: string;
-  }> {
+  static async verifyTransaction(transactionId: string): Promise<PaymentVerificationResult> {
     try {
       const response = await axios.get(
         `${FLW_BASE_URL}/transactions/${transactionId}/verify`,
         { headers: getHeaders(), timeout: 30000 }
       );
 
-      if (response.data?.status !== 'success') {
+      if (response.data?.status !== 'success' || !response.data?.data) {
         return {
           success: false,
           verified: false,
@@ -125,80 +135,147 @@ export class PaymentService {
         };
       }
 
-      const transaction = response.data.data;
-      const isSuccessful = transaction.status === 'successful';
+      const transaction = response.data.data as Record<string, unknown>;
+      const status = String(transaction.status);
+      const isSuccessful = status === 'successful';
+      const isPending = status === 'pending';
 
-      logger.info('Flutterwave transaction verified', {
+      logger.info('Flutterwave transaction verified by id', {
         transactionId,
         txRef: transaction.tx_ref,
-        status: transaction.status,
+        status,
         amount: transaction.amount,
       });
 
       return {
         success: true,
         verified: isSuccessful,
-        data: {
-          amount: transaction.amount,
-          currency: transaction.currency,
-          txRef: transaction.tx_ref,
-          flwRef: transaction.flw_ref,
-          status: transaction.status,
-          paymentMethod: transaction.payment_type,
-          customerEmail: transaction.customer?.email,
-          meta: transaction.meta,
-        },
+        pending: isPending,
+        data: mapFlutterwaveTransaction(transaction),
       };
-    } catch (error: any) {
-      logger.error('Flutterwave verification failed', {
-        error: error.response?.data || error.message,
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { message?: string } }; message?: string };
+      logger.error('Flutterwave verification by id failed', {
+        error: err.response?.data || err.message,
         transactionId,
       });
       return {
         success: false,
         verified: false,
-        error: error.response?.data?.message || 'Failed to verify transaction',
+        error: err.response?.data?.message || 'Failed to verify transaction',
       };
     }
   }
 
-  // ============================================
-  // GET TRANSACTION BY TX_REF
-  // ============================================
-  static async getTransactionByRef(txRef: string): Promise<{
-    success: boolean;
-    data?: any;
-    error?: string;
-  }> {
+  /** Preferred path when the app only has tx_ref (PLZ-...) after hosted checkout. */
+  static async verifyTransactionByRef(txRef: string): Promise<PaymentVerificationResult> {
     try {
       const response = await axios.get(
-        `${FLW_BASE_URL}/transactions?tx_ref=${txRef}`,
-        { headers: getHeaders(), timeout: 30000 }
+        `${FLW_BASE_URL}/transactions/verify_by_reference`,
+        {
+          params: { tx_ref: txRef },
+          headers: getHeaders(),
+          timeout: 30000,
+        }
       );
 
-      if (
-        response.data?.status !== 'success' ||
-        !response.data?.data?.length
-      ) {
-        return { success: false, error: 'Transaction not found' };
+      if (response.data?.status !== 'success' || !response.data?.data) {
+        const message = response.data?.message || 'Transaction not found';
+        const notFound =
+          typeof message === 'string' &&
+          message.toLowerCase().includes('no transaction was found');
+
+        return {
+          success: false,
+          verified: false,
+          error: notFound ? 'Transaction not found' : message,
+        };
       }
 
-      return { success: true, data: response.data.data[0] };
-    } catch (error: any) {
-      logger.error('Flutterwave get transaction by ref failed', {
-        error: error.response?.data || error.message,
+      const transaction = response.data.data as Record<string, unknown>;
+      const status = String(transaction.status);
+      const isSuccessful = status === 'successful';
+      const isPending = status === 'pending';
+
+      logger.info('Flutterwave transaction verified by reference', {
+        txRef,
+        status,
+        amount: transaction.amount,
+      });
+
+      return {
+        success: true,
+        verified: isSuccessful,
+        pending: isPending,
+        data: mapFlutterwaveTransaction(transaction),
+      };
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { message?: string } }; message?: string };
+      logger.error('Flutterwave verify_by_reference failed', {
+        error: err.response?.data || err.message,
         txRef,
       });
       return {
         success: false,
-        error: error.response?.data?.message || 'Failed to get transaction',
+        verified: false,
+        error: err.response?.data?.message || 'Failed to verify transaction',
       };
     }
   }
 
-  // ============================================
-  // VERIFY WEBHOOK SIGNATURE
-  // ============================================
+  static async verifyPayment(input: {
+    transactionId?: string;
+    txRef?: string;
+  }): Promise<PaymentVerificationResult> {
+    const { transactionId, txRef } = input;
+
+    if (transactionId && txRef) {
+      const byId = await this.verifyTransaction(transactionId);
+      if (byId.success) {
+        return byId;
+      }
+      logger.warn('Flutterwave verify by id failed; falling back to tx_ref', {
+        transactionId,
+        txRef,
+        error: byId.error,
+      });
+      return this.verifyTransactionByRef(txRef);
+    }
+
+    if (transactionId) {
+      return this.verifyTransaction(transactionId);
+    }
+    if (txRef) {
+      return this.verifyTransactionByRef(txRef);
+    }
+    return {
+      success: false,
+      verified: false,
+      error: 'transaction_id or tx_ref is required',
+    };
+  }
+
+  /** @deprecated Use verifyTransactionByRef */
+  static async getTransactionByRef(txRef: string): Promise<{
+    success: boolean;
+    data?: Record<string, unknown>;
+    error?: string;
+  }> {
+    const result = await this.verifyTransactionByRef(txRef);
+    if (!result.success || !result.data) {
+      return { success: false, error: result.error || 'Transaction not found' };
+    }
+    return {
+      success: true,
+      data: {
+        id: result.data.flwRef,
+        tx_ref: result.data.txRef,
+        status: result.data.status,
+        amount: result.data.amount,
+      },
+    };
+  }
+
   static verifyWebhookSignature(signature: string): boolean {
     return signature === process.env.FLW_WEBHOOK_HASH;
   }

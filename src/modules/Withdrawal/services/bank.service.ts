@@ -118,7 +118,13 @@ export class BankService {
         where: { userId, accountNumber },
       });
 
-      if (existing) throw new Error('Bank account already added');
+      if (existing) {
+        logger.info('Bank account already on file — returning existing', {
+          userId,
+          accountNumber: existing.accountNumber,
+        });
+        return existing;
+      }
 
       const hasDefault = await prisma.bankAccount.findFirst({
         where: { userId, isDefault: true },

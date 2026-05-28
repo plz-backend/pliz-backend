@@ -427,8 +427,11 @@ model UserStats {
   totalReceived       Decimal  @default(0) @map("total_received") @db.Decimal(12, 2)
   totalWithdrawn      Decimal  @default(0) @map("total_withdrawn") @db.Decimal(12, 2) // NEW
   availableBalance    Decimal  @default(0) @map("available_balance") @db.Decimal(12, 2) // NEW
-  totalDonated        Decimal  @default(0) @map("total_donated") @db.Decimal(12, 2)
-  abuseFlags          Int      @default(0) @map("abuse_flags")
+  totalDonated            Decimal   @default(0) @map("total_donated") @db.Decimal(12, 2)
+  peopleHelped            Int       @default(0) @map("people_helped")
+  peopleHelpedThisWeek    Int       @default(0) @map("people_helped_this_week")
+  peopleHelpedWeekAnchor  DateTime? @map("people_helped_week_anchor") @db.Timestamp(6)
+  abuseFlags              Int       @default(0) @map("abuse_flags")
 
   // Relations
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)

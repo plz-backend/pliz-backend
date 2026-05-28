@@ -52,6 +52,7 @@ export const getPublicProfile = async (
           select: {
             totalDonated: true,
             requestsCount: true,
+            peopleHelped: true,
           },
         },
         verification: {
@@ -80,14 +81,7 @@ export const getPublicProfile = async (
       return;
     }
 
-    const donationRows = await prisma.donation.findMany({
-      where: { donorId: userId, status: 'success' },
-      distinct: ['begId'],
-      select: {
-        beg: { select: { userId: true } },
-      },
-    });
-    const peopleHelped = new Set(donationRows.map((r) => r.beg.userId)).size;
+    const peopleHelped = user.stats?.peopleHelped ?? 0;
 
     const avatar = await ProfilePictureService.getAvatar(userId);
 

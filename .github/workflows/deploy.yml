@@ -103,8 +103,9 @@ jobs:
             --set-secrets=CACHE_USER_SESSION_TTL=CACHE_USER_SESSION_TTL:latest
             --set-secrets=RATE_LIMIT_MAX_REQUESTS=RATE_LIMIT_MAX_REQUESTS:latest
             --set-secrets=RATE_LIMIT_WINDOW_MS=RATE_LIMIT_WINDOW_MS:latest
-            --set-secrets=PAYSTACK_SECRET_KEY=PAYSTACK_SECRET_KEY:latest
-            --set-secrets=PAYSTACK_PUBLIC_KEY=PAYSTACK_PUBLIC_KEY:latest
+            --set-secrets=FLW_SECRET_KEY=FLW_SECRET_KEY:latest
+            --set-secrets=FLW_WEBHOOK_HASH=FLW_WEBHOOK_HASH:latest
+            --set-secrets=FLW_PUBLIC_KEY=FLW_PUBLIC_KEY:latest
             --set-secrets=JWT_SECRET=JWT_SECRET:latest
             --set-secrets=JWT_ACCESS_EXPIRATION=JWT_ACCESS_EXPIRATION:latest
             --set-secrets=JWT_REFRESH_EXPIRATION=JWT_REFRESH_EXPIRATION:latest

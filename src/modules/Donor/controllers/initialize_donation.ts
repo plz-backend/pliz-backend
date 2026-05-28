@@ -27,7 +27,8 @@ export const initializeDonation = async (
 ): Promise<void> => {
   try {
     const donorId = (req as any).user?.userId;
-    const { begId, amount, isAnonymous, savedCardId, redirectUrl } = req.body;
+    const { begId, amount, isAnonymous, savedCardId, redirectUrl, callbackUrl } = req.body;
+    const checkoutRedirectUrl = (redirectUrl || callbackUrl)?.trim();
     const ip =
       req.ip || (req.headers['x-forwarded-for'] as string) || 'unknown';
 
@@ -201,6 +202,7 @@ export const initializeDonation = async (
           donation_id: donation.id,
           amount: actualAmount,
           tx_ref: txRef,
+          payment_reference: txRef,
           payment_method: 'saved_card',
           status: chargeResult.status,
           previous_donation_warning: previousDonationWarning,
@@ -219,7 +221,7 @@ export const initializeDonation = async (
       begId,
       donorId,
       isAnonymous: effectiveIsAnonymous,
-      redirectUrl,
+      redirectUrl: checkoutRedirectUrl,
     });
 
     if (!payment.success) {
@@ -254,6 +256,7 @@ export const initializeDonation = async (
         donation_id: donation.id,
         amount: actualAmount,
         tx_ref: txRef,
+        payment_reference: txRef,
         payment_url: payment.paymentUrl,
         quick_amounts: QUICK_DONATION_AMOUNTS,
         previous_donation_warning: previousDonationWarning,
