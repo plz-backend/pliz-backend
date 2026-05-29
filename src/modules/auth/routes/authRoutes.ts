@@ -176,7 +176,7 @@ router.post(
 router.get(
   '/me',
   authenticate,
-  generalLimiter,  
+  generalLimiter,
   getMe
 );
 

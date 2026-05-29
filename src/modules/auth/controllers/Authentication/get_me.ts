@@ -7,6 +7,11 @@ import {
 } from '../../types/user.interface';
 import logger from '../../../../config/logger';
 import { buildStaffAuthFields } from '../../../admin/utils/admin-user-response';
+import { CacheService } from '../../services/cacheService';
+import {
+  readPeopleHelpedFromStats,
+  resolvePeopleHelpedThisWeek,
+} from '../../../../services/people-helped-stats.service';
 
 function initialsFromProfile(
   profile: { firstName?: string | null; lastName?: string | null } | null | undefined
@@ -55,7 +60,6 @@ export const getMe = async (
   res: Response
 ): Promise<void> => {
   try {
-    // FIXED: Use req.user?.userId (properly typed)
     const userId = req.user?.userId;
 
     if (!userId) {
@@ -68,9 +72,14 @@ export const getMe = async (
       return;
     }
 
+    const cached = await CacheService.getMeCache(userId);
+    if (cached) {
+      sendResponse(res, 200, cached);
+      return;
+    }
+
     logger.info('Get current user request', { userId });
 
-    // Get user with profile + aggregate stats from database
     const user = await prisma.user.findUnique({
       where: { id: userId },
       include: {
@@ -101,38 +110,18 @@ export const getMe = async (
       sendResponse(res, 404, response);
       return;
     }
-    const weekAgo = new Date();
-    weekAgo.setUTCDate(weekAgo.getUTCDate() - 7);
 
-    const [donationRows, weeklyDonationRows] = await Promise.all([
-      prisma.donation.findMany({
-        where: { donorId: userId, status: 'success' },
-        distinct: ['begId'],
-        select: {
-          begId: true,
-          beg: { select: { userId: true } },
-        },
-      }),
-      prisma.donation.findMany({
-        where: {
-          donorId: userId,
-          status: 'success',
-          createdAt: { gte: weekAgo },
-        },
-        distinct: ['begId'],
-        select: {
-          begId: true,
-          beg: { select: { userId: true } },
-        },
-      }),
-    ]);
+    const { peopleHelped } = readPeopleHelpedFromStats(user.stats);
+    const peopleHelpedThisWeek = await resolvePeopleHelpedThisWeek(
+      userId,
+      user.stats
+        ? {
+            peopleHelpedThisWeek: user.stats.peopleHelpedThisWeek,
+            peopleHelpedWeekAnchor: user.stats.peopleHelpedWeekAnchor,
+          }
+        : null
+    );
 
-    const peopleHelped = new Set(donationRows.map((r) => r.beg.userId)).size;
-    const peopleHelpedThisWeek = new Set(
-      weeklyDonationRows.map((r) => r.beg.userId)
-    ).size;
-
-    // Get stats summary
     const statsSummary: IUserStatsSummary = user.stats
       ? {
           totalDonated: parseFloat(user.stats.totalDonated.toString()),
@@ -145,8 +134,8 @@ export const getMe = async (
           totalDonated: 0,
           totalReceived: 0,
           requestsCount: 0,
-          peopleHelped,
-          peopleHelpedThisWeek,
+          peopleHelped: 0,
+          peopleHelpedThisWeek: 0,
         };
 
     const legacyAvatar = user.avatar
@@ -158,22 +147,21 @@ export const getMe = async (
         }
       : null;
 
-    // Prepare complete user response (excluding password)
     const userResponse: IUserResponse = {
       id: user.id,
       username: user.username,
       email: user.email,
-      role: user.role,  // Include role
+      role: user.role,
       isEmailVerified: user.isEmailVerified,
       emailVerifiedAt: user.emailVerifiedAt,
       isProfileComplete: user.isProfileComplete,
-      isSuspended: user.isSuspended,  // Include suspension status
-      isUnderInvestigation: user.isUnderInvestigation,  // Include investigation status
+      isSuspended: user.isSuspended,
+      isUnderInvestigation: user.isUnderInvestigation,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
       ...buildStaffAuthFields(user),
-      profile: user.profile || null,  // Include profile data
-      stats: statsSummary, // Include stats data
+      profile: user.profile || null,
+      stats: statsSummary,
       verification: user.verification
         ? {
             verificationType: user.verification.verificationType,
@@ -204,6 +192,8 @@ export const getMe = async (
       message: 'User retrieved successfully',
       data: { user: userResponse },
     };
+
+    await CacheService.setMeCache(userId, response);
     sendResponse(res, 200, response);
   } catch (error: any) {
     logger.error('Get current user error', {

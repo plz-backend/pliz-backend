@@ -25,7 +25,7 @@ Key facts about Plz:
 - Phone number must be verified via OTP before KYC
 - Trust tiers affect request amounts and frequency
 - To move to a higher trust tier, user must have donated once OR completed 2 successful begs
-- Donations are processed via Paystack
+- Donations are processed via Flutterwave
 - Withdrawals have a 5.375% effective total fee (5% company/platform fee + 7.5% VAT on that fee)
 - Begs expire after 24h, 72h, or 7 days — user chooses
 - Begs can be extended before they expire

@@ -6,6 +6,8 @@ import { DonorRankService } from './donor_rank.service';
 import { NotificationService } from '../../notifications/services/notification.service';
 import { PaymentMethodService } from '../../Payment/services/payment_method.service';
 import logger from '../../../config/logger';
+import { applyDonorPeopleHelpedOnDonation } from '../../../services/people-helped-stats.service';
+import { CacheService } from '../../auth/services/cacheService';
 
 // Pre-defined gratitude messages
 const GRATITUDE_MESSAGES: Record<1 | 2, string> = {
@@ -31,7 +33,7 @@ const buildBegTitle = (
 
 export class DonationService {
   /**
-   * Process donation after Paystack confirms payment
+   * Process donation after Flutterwave confirms payment
    */
   static async processDonation(data: {
     begId: string;
@@ -140,6 +142,7 @@ export class DonationService {
               abuseFlags: 0,
             },
           });
+
         }
 
         // STEP 8: INSERT gratitude_messages
@@ -164,6 +167,23 @@ export class DonationService {
         isFullyFunded: result.isFullyFunded,
       });
 
+      if (donorId) {
+        try {
+          await applyDonorPeopleHelpedOnDonation(
+            prisma,
+            donorId,
+            recipientId,
+            donation.id
+          );
+        } catch (error: unknown) {
+          logger.warn('Failed to update people-helped stats after donation', {
+            donationId: donation.id,
+            donorId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+
       // STEP 9: UPDATE donor_ranks
       if (donorId) {
         await DonorRankService.updateAfterDonation(donorId, donationAmount);
@@ -176,7 +196,10 @@ export class DonationService {
       if (donorId) await TrustScoreService.calculateTrustScore(donorId);
 
       // STEP 13: Invalidate donor rank cache
-      if (donorId) await DonorRankService.invalidateCache(donorId);
+      if (donorId) {
+        await DonorRankService.invalidateCache(donorId);
+        await CacheService.invalidateMeCache(donorId);
+      }
 
       // STEP 14: Invalidate beg donations cache
       await this.invalidateBegDonationsCache(donation.begId);

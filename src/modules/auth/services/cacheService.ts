@@ -175,6 +175,43 @@ export class CacheService {
   }
 
   // ============================================
+  // GET /me RESPONSE CACHE
+  // ============================================
+
+  static async getMeCache(userId: string): Promise<any | null> {
+    try {
+      const client = redisClient.getClient();
+      const data = await client.get(`me:${userId}`);
+      return data ? JSON.parse(data) : null;
+    } catch (error) {
+      logger.error('Failed to get /me cache', { error, userId });
+      return null;
+    }
+  }
+
+  static async setMeCache(
+    userId: string,
+    payload: unknown,
+    expirySeconds: number = 60
+  ): Promise<void> {
+    try {
+      const client = redisClient.getClient();
+      await client.setEx(`me:${userId}`, expirySeconds, JSON.stringify(payload));
+    } catch (error) {
+      logger.error('Failed to set /me cache', { error, userId });
+    }
+  }
+
+  static async invalidateMeCache(userId: string): Promise<void> {
+    try {
+      const client = redisClient.getClient();
+      await client.del(`me:${userId}`);
+    } catch (error) {
+      logger.error('Failed to invalidate /me cache', { error, userId });
+    }
+  }
+
+  // ============================================
   // EMAIL VERIFICATION OTP
   // ============================================
 

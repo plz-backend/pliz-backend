@@ -14,6 +14,10 @@ import { CooldownService } from '../../../services/cooldown.service';
 import { CategoryService } from './category.service';
 import { ProfilePictureService } from '../../ProfilePicture/services/profile-picture.service';
 import logger from '../../../config/logger';
+import redisClient from '../../../config/redis';
+
+const BEGS_FEED_CACHE_PREFIX = 'begs_feed:';
+const BEGS_FEED_CACHE_TTL = 60; // seconds
 
 const MAX_DESCRIPTION_WORDS = 40;
 const MAX_DESCRIPTION_LENGTH = 300;
@@ -472,6 +476,16 @@ export class BegService {
     categoryId?: string
   ): Promise<{ begs: IBegResponse[]; total: number; pages: number }> {
     try {
+      const cacheKey = `${BEGS_FEED_CACHE_PREFIX}${page}:${limit}:${categoryId ?? 'all'}`;
+      try {
+        const cached = await redisClient.getClient().get(cacheKey);
+        if (cached) {
+          return JSON.parse(cached);
+        }
+      } catch (cacheError: any) {
+        logger.warn('Beg feed cache read failed', { error: cacheError.message });
+      }
+
       const skip = (page - 1) * limit;
       const where: any = {
         status: 'active',
@@ -496,13 +510,23 @@ export class BegService {
         prisma.beg.count({ where }),
       ]);
 
-      return {
+      const result = {
         begs: await Promise.all(
           begs.map((beg: IBegWithRelations) => this.transformBegResponse(beg))
         ),
         total,
         pages: Math.ceil(total / limit),
       };
+
+      try {
+        await redisClient
+          .getClient()
+          .setEx(cacheKey, BEGS_FEED_CACHE_TTL, JSON.stringify(result));
+      } catch (cacheError: any) {
+        logger.warn('Beg feed cache write failed', { error: cacheError.message });
+      }
+
+      return result;
     } catch (error: any) {
       logger.error('Failed to get active begs', { error: error.message });
       throw error;
