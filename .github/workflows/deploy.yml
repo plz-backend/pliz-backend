@@ -72,6 +72,9 @@ jobs:
             --service-account=${{ env.RUNTIME_SERVICE_ACCOUNT }}
             --port=8080
             --allow-unauthenticated
+            --network=plz-vpc
+            --subnet=plz-run-subnet
+            --vpc-egress=all-traffic
             --set-secrets=DATABASE_URL=DATABASE_URL:latest
             --set-secrets=DIRECT_URL=DIRECT_URL:latest
             --set-secrets=REDIS_URL=REDIS_URL:latest
