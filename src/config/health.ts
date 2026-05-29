@@ -1,9 +1,12 @@
 import prisma from '../config/database';
 import redisClient from '../config/redis';
 import logger from '../config/logger';
+import { getAppVersion, getGitSha } from './version';
 
 export type HealthCheckResult = {
   status: 'healthy' | 'degraded' | 'unhealthy';
+  version: string;
+  git_sha?: string;
   uptime: number;
   timestamp: string;
   checks: {
@@ -39,6 +42,8 @@ export async function runHealthChecks(): Promise<HealthCheckResult> {
 
   return {
     status: allOk ? 'healthy' : anyOk ? 'degraded' : 'unhealthy',
+    version: getAppVersion(),
+    git_sha: getGitSha(),
     uptime: process.uptime(),
     timestamp: new Date().toISOString(),
     checks,

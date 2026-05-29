@@ -1,5 +1,5 @@
 {
-  "name": "pliz",
+  "name": "plz",
   "version": "1.0.0",
   "description": "Pliz Backend Application",
   "main": "dist/src/server.js",
@@ -17,7 +17,6 @@
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:migrate:status": "prisma migrate status",
     "seed": "ts-node prisma/seed.ts",
-    "create-superadmin": "ts-node src/scripts/create_superadmin.ts",
     "bootstrap-admin": "ts-node src/scripts/bootstrap-admin.ts"
   },
   "keywords": [

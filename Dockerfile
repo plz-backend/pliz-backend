@@ -23,6 +23,10 @@ RUN npm prune --omit=dev
 # Runtime stage
 FROM node:20-slim
 
+ARG APP_VERSION=0.0.0-dev
+ARG GIT_SHA=unknown
+ENV APP_VERSION=$APP_VERSION
+ENV GIT_SHA=$GIT_SHA
 ENV NODE_ENV=production
 ENV PORT=8080
 

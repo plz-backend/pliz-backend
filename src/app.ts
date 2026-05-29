@@ -30,6 +30,7 @@ import securityRoutes from './modules/Security/routes/security.routes';
 import schedulerRoutes from './routes/scheduler.routes';
 import { runHealthChecks } from './config/health';
 import { isProduction } from './config/env';
+import { getAppVersion, getGitSha } from './config/version';
 
 export const createApp = (): Express => {
   const app = express();
@@ -117,7 +118,8 @@ export const createApp = (): Express => {
       success: true,
       message: 'Plz API Server',
       data: {
-        version: '1.0.0',
+        version: getAppVersion(),
+        git_sha: getGitSha(),
         status: 'running',
         environment: process.env.NODE_ENV || 'development',
         endpoints: {
