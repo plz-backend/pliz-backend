@@ -72,9 +72,6 @@ jobs:
             --service-account=${{ env.RUNTIME_SERVICE_ACCOUNT }}
             --port=8080
             --allow-unauthenticated
-            --network=plz-vpc
-            --subnet=plz-run-subnet
-            --vpc-egress=all-traffic
             --set-secrets=DATABASE_URL=DATABASE_URL:latest
             --set-secrets=DIRECT_URL=DIRECT_URL:latest
             --set-secrets=REDIS_URL=REDIS_URL:latest
@@ -108,7 +105,6 @@ jobs:
             --set-secrets=SENDCHAMP_API_KEY=SENDCHAMP_API_KEY:latest
             --set-secrets=SENDCHAMP_SMS_SENDER=SENDCHAMP_SMS_SENDER:latest
             --set-secrets=SENDCHAMP_WHATSAPP_SENDER=SENDCHAMP_WHATSAPP_SENDER:latest
-            --set-secrets=OTP_CHANNEL=OTP_CHANNEL:latest
             --set-secrets=TERMII_API_KEY=TERMII_API_KEY:latest
             --set-secrets=YOUVERIFY_API_KEY=YOUVERIFY_API_KEY:latest
             --set-secrets=SUPABASE_URL=SUPABASE_URL:latest
@@ -222,7 +218,6 @@ jobs:
             --set-secrets=SENDCHAMP_API_KEY=SENDCHAMP_API_KEY:latest
             --set-secrets=SENDCHAMP_SMS_SENDER=SENDCHAMP_SMS_SENDER:latest
             --set-secrets=SENDCHAMP_WHATSAPP_SENDER=SENDCHAMP_WHATSAPP_SENDER:latest
-            --set-secrets=OTP_CHANNEL=OTP_CHANNEL:latest
             --set-secrets=TERMII_API_KEY=TERMII_API_KEY:latest
             --set-secrets=YOUVERIFY_API_KEY=YOUVERIFY_API_KEY:latest
             --set-secrets=SUPABASE_URL=SUPABASE_URL:latest
