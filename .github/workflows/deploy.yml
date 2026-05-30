@@ -6,6 +6,12 @@ on:
       - staging
     tags:
       - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Production release tag to deploy
+        required: true
+        type: string
 
 jobs:
   deploy-staging:
@@ -122,7 +128,7 @@ jobs:
             --set-env-vars=NODE_ENV=production,SCHEDULER_ENABLED=false,COOKIE_SECURE=true
 
   deploy-production:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && startsWith(inputs.release_tag, 'v'))
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -134,19 +140,23 @@ jobs:
       GAR_REPOSITORY: ${{ vars.GAR_REPOSITORY }}
       SERVICE_NAME: ${{ vars.CLOUD_RUN_SERVICE }}
       IMAGE_NAME: pliz-backend
-      RELEASE_TAG: ${{ github.ref_name }}
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
       RUNTIME_SERVICE_ACCOUNT: ${{ vars.RUNTIME_SERVICE_ACCOUNT }}
       DEPLOYER_SERVICE_ACCOUNT: ${{ secrets.DEPLOYER_SERVICE_ACCOUNT }}
       WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Resolve release metadata
         id: meta
         run: |
           VERSION="${RELEASE_TAG#v}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Deploying production release $RELEASE_TAG (version $VERSION)"
+          GIT_SHA="$(git rev-parse HEAD)"
+          echo "git_sha=$GIT_SHA" >> "$GITHUB_OUTPUT"
+          echo "Deploying production release $RELEASE_TAG (version $VERSION, sha $GIT_SHA)"
 
       - uses: google-github-actions/auth@v2
         id: auth
@@ -188,12 +198,12 @@ jobs:
           IMAGE="$REGION-docker.pkg.dev/$PROJECT_ID/$GAR_REPOSITORY/$IMAGE_NAME"
           docker build \
             --build-arg APP_VERSION="${{ steps.meta.outputs.version }}" \
-            --build-arg GIT_SHA="${{ github.sha }}" \
+            --build-arg GIT_SHA="${{ steps.meta.outputs.git_sha }}" \
             -t "$IMAGE:${{ env.RELEASE_TAG }}" \
-            -t "$IMAGE:${{ github.sha }}" \
+            -t "$IMAGE:${{ steps.meta.outputs.git_sha }}" \
             .
           docker push "$IMAGE:${{ env.RELEASE_TAG }}"
-          docker push "$IMAGE:${{ github.sha }}"
+          docker push "$IMAGE:${{ steps.meta.outputs.git_sha }}"
 
       - name: Deploy to Cloud Run
         uses: google-github-actions/deploy-cloudrun@v2
