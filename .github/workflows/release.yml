@@ -1,7 +1,6 @@
 name: Create release
 
-# Bumps package.json, commits, tags vX.Y.Z on main, and pushes.
-# The tag push triggers deploy-production in deploy.yml.
+# Bumps package.json, commits, tags vX.Y.Z on main, pushes, and dispatches production deploy.
 
 on:
   workflow_dispatch:
@@ -20,6 +19,7 @@ jobs:
   release:
     runs-on: ubuntu-latest
     permissions:
+      actions: write
       contents: write
     steps:
       - uses: actions/checkout@v4
@@ -37,8 +37,16 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Bump version and create tag
+        id: version
         run: |
-          npm version "${{ inputs.release_type }}" -m "chore(release): %s"
+          RELEASE_TAG="$(npm version "${{ inputs.release_type }}" -m "chore(release): %s")"
+          echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
 
       - name: Push release commit and tag
         run: git push origin main --follow-tags
+
+      - name: Dispatch production deploy
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.version.outputs.release_tag }}
+        run: gh workflow run deploy.yml --ref main -f release_tag="$RELEASE_TAG"
