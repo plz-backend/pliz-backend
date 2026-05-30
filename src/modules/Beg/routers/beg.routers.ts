@@ -1,12 +1,12 @@
 
 
 import { Router } from 'express';
-import { authenticate } from '../../auth/middleware/auth/auth';
+import { authenticate, authenticateOptional } from '../../auth/middleware/auth/auth';
 import { checkAccountStatus } from '../../auth/middleware/auth/account_status.middleware.js';  
 import { checkProfileComplete } from '../../auth/middleware/auth/check_profile_complete.js'; 
-import { checkCooldown } from '../middleware/check_cooldown';
 import { generalLimiter } from '../../auth/middleware/auth/rateLimiter.js';
 import { validateRequest } from '../../auth/middleware/auth/validateRequest';
+
 
 // Validations
 import {
@@ -27,8 +27,7 @@ import { extendBeg } from '../../Beg/controller/beg.extend_beg.controller';
 import { getCategories } from '../../Beg/controller/beg.get_categories.js';
 import { getTrustProgress} from '../../Beg/controller/beg.get_trust_progress.js';
 import { getExpiringBegs } from '../../Beg/beg_extend_notification/beg.extend.notification.controller';
-
-
+import { requireKYC } from '../../KYC/middleware/requireKYC';
 
 
 const router = Router();
@@ -87,6 +86,7 @@ router.get(
   generalLimiter,
   getBegByIdValidation,
   validateRequest,
+  authenticateOptional,
   getBegById
 );
 
@@ -103,7 +103,7 @@ router.post(
   '/',
   authenticate,
   checkProfileComplete,
-  checkCooldown,
+  // requireKYC,              // ← blocks unverified users
   createBegValidation,
   checkAccountStatus,
   validateRequest,
@@ -118,6 +118,7 @@ router.post(
 router.put(
   '/:id',
   authenticate,
+  // requireKYC,              // ← blocks unverified users
   checkAccountStatus,
   updateBeg
 );

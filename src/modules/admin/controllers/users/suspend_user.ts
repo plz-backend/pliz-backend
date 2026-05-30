@@ -22,9 +22,9 @@ interface UserParams {
  * @desc    Suspend a user account
  * @access  Admin
  */
-export const suspendUser = async (req: Request<UserParams>, res: Response): Promise<void> => {
+export const suspendUser = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { id } = req.params;
+    const id = String(req.params.id);
     const { reason } = req.body;
     const adminId = (req as any).user?.userId;
     const ip = req.ip || req.headers['x-forwarded-for'] as string || 'unknown';

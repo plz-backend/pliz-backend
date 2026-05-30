@@ -1,6 +1,12 @@
 import nodemailer, { Transporter } from 'nodemailer';
 import logger from '../../../config/logger';
 
+const getFrontendBaseUrl = (): string => (
+  process.env.FRONTEND_URL ||
+  process.env.EXPO_PUBLIC_FRONTEND_URL ||
+  'http://localhost:8081'
+).replace(/\/$/, '');
+
 /**
  * Email Service
  * Handles sending emails for authentication
@@ -16,7 +22,7 @@ export class EmailService {
       this.transporter = nodemailer.createTransport({
         host: process.env.EMAIL_HOST || 'smtp.gmail.com',
         port: parseInt(process.env.EMAIL_PORT || '587'),
-        secure: false, // true for 465, false for other ports
+        secure: true, // true for 465, false for other ports
         auth: {
           user: process.env.EMAIL_USER,
           pass: process.env.EMAIL_PASSWORD,
@@ -42,11 +48,7 @@ export class EmailService {
         return;
       }
 
-      const frontendBase = (
-        process.env.FRONTEND_URL ||
-        process.env.EXPO_PUBLIC_FRONTEND_URL ||
-        ''
-      ).replace(/\/$/, '');
+      const frontendBase = getFrontendBaseUrl();
       const apiBase = (process.env.BASE_URL || '').replace(/\/$/, '');
       const verificationUrl = frontendBase
         ? `${frontendBase}/verify-email?token=${encodeURIComponent(token)}`
@@ -123,11 +125,11 @@ export class EmailService {
   ): Promise<void> {
     try {
       if (!this.transporter) {
-        logger.warn('Email service not initialized');
-        return;
+        throw new Error('Email service not initialized');
       }
 
-      const resetUrl = `${process.env.BASE_URL}/api/auth/reset-password?token=${token}`;
+      const frontendBase = getFrontendBaseUrl();
+      const resetUrl = `${frontendBase}/reset-password?token=${encodeURIComponent(token)}`;
 
       const mailOptions = {
         from: `"Plz App" <${process.env.EMAIL_FROM || process.env.EMAIL_USER}>`,

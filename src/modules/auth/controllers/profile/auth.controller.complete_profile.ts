@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import prisma from '../../../../config/database';
 import { IApiResponse } from '../../types/user.interface';
 import logger from '../../../../config/logger';
+import { CacheService } from '../../services/cacheService';
 
 const sendResponse = <T = any>(
   res: Response,
@@ -139,6 +140,8 @@ export const completeProfile = async (
     });
 
     logger.info('Profile completed successfully', { userId });
+
+    await CacheService.invalidateMeCache(userId);
 
     sendResponse(res, 201, {
       success: true,

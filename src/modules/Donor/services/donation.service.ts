@@ -1,11 +1,13 @@
 import prisma from '../../../config/database';
+import { Prisma } from '@prisma/client';
 import redisClient from '../../../config/redis';
 import { TrustScoreService } from '../../../services/trust_score.service';
 import { DonorRankService } from './donor_rank.service';
 import { NotificationService } from '../../notifications/services/notification.service';
 import { PaymentMethodService } from '../../Payment/services/payment_method.service';
-import { trustScoreQueue } from '../../../config/queue-manager';    // ← added
 import logger from '../../../config/logger';
+import { applyDonorPeopleHelpedOnDonation } from '../../../services/people-helped-stats.service';
+import { CacheService } from '../../auth/services/cacheService';
 
 // Pre-defined gratitude messages
 const GRATITUDE_MESSAGES: Record<1 | 2, string> = {
@@ -31,7 +33,7 @@ const buildBegTitle = (
 
 export class DonationService {
   /**
-   * Process donation after Paystack confirms payment
+   * Process donation after Flutterwave confirms payment
    */
   static async processDonation(data: {
     begId: string;
@@ -77,6 +79,11 @@ export class DonationService {
           status: donation.status,
         });
         return await this.getDonationWithDetails(donation.id);
+      }
+
+      // ← You are not allowed to donate to your own beg
+      if (donation.beg.userId === donation.donorId) {
+        throw new Error('You cannot donate to your own beg');
       }
 
       const donationAmount = parseFloat(donation.amount.toString());
@@ -135,6 +142,7 @@ export class DonationService {
               abuseFlags: 0,
             },
           });
+
         }
 
         // STEP 8: INSERT gratitude_messages
@@ -159,62 +167,39 @@ export class DonationService {
         isFullyFunded: result.isFullyFunded,
       });
 
+      if (donorId) {
+        try {
+          await applyDonorPeopleHelpedOnDonation(
+            prisma,
+            donorId,
+            recipientId,
+            donation.id
+          );
+        } catch (error: unknown) {
+          logger.warn('Failed to update people-helped stats after donation', {
+            donationId: donation.id,
+            donorId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+
       // STEP 9: UPDATE donor_ranks
       if (donorId) {
         await DonorRankService.updateAfterDonation(donorId, donationAmount);
       }
 
-      // ============================================
-      // STEPS 10 & 11: Invalidate trust score caches
-      // Try queue first — fall back to direct if queue unavailable
-      // ============================================
-      try {
-        await trustScoreQueue.add(
-          'invalidate',
-          { userId: recipientId, action: 'invalidate' },
-          { jobId: `trust-invalidate-${recipientId}-${Date.now()}` }
-        );
-
-        if (donorId) {
-          await trustScoreQueue.add(
-            'invalidate',
-            { userId: donorId, action: 'invalidate' },
-            { jobId: `trust-invalidate-${donorId}-${Date.now()}` }
-          );
-        }
-
-        // ============================================
-        // STEP 12: Recalculate trust scores via queue
-        // ============================================
-        await trustScoreQueue.add(
-          'recalculate',
-          { userId: recipientId, action: 'recalculate' },
-          { jobId: `trust-recalc-${recipientId}-${Date.now()}` }
-        );
-
-        if (donorId) {
-          await trustScoreQueue.add(
-            'recalculate',
-            { userId: donorId, action: 'recalculate' },
-            { jobId: `trust-recalc-${donorId}-${Date.now()}` }
-          );
-        }
-
-        logger.info('Trust score jobs queued', { recipientId, donorId });
-      } catch (queueError: any) {
-        // Queue unavailable — fall back to direct processing
-        logger.warn('Trust score queue unavailable, processing directly', {
-          error: queueError.message,
-        });
-
-        await TrustScoreService.invalidateTrustScoreCache(recipientId);
-        if (donorId) await TrustScoreService.invalidateTrustScoreCache(donorId);
-        await TrustScoreService.calculateTrustScore(recipientId);
-        if (donorId) await TrustScoreService.calculateTrustScore(donorId);
-      }
+      // STEPS 10-12: Refresh trust score caches directly.
+      await TrustScoreService.invalidateTrustScoreCache(recipientId);
+      if (donorId) await TrustScoreService.invalidateTrustScoreCache(donorId);
+      await TrustScoreService.calculateTrustScore(recipientId);
+      if (donorId) await TrustScoreService.calculateTrustScore(donorId);
 
       // STEP 13: Invalidate donor rank cache
-      if (donorId) await DonorRankService.invalidateCache(donorId);
+      if (donorId) {
+        await DonorRankService.invalidateCache(donorId);
+        await CacheService.invalidateMeCache(donorId);
+      }
 
       // STEP 14: Invalidate beg donations cache
       await this.invalidateBegDonationsCache(donation.begId);
@@ -313,17 +298,35 @@ export class DonationService {
     if (!beg) throw new Error('Beg not found');
     if (beg.status !== 'active') throw new Error(`Beg status: ${beg.status}`);
 
-    await prisma.donation.create({
-      data: {
-        begId: data.begId,
-        donorId: data.donorId,
-        amount: data.amount,
-        isAnonymous: data.isAnonymous,
-        paymentReference: data.paymentReference,
-        paymentMethod: data.paymentMethod,
-        status: 'pending',
-      },
-    });
+    // ← ADD THIS
+    if (beg.userId === data.donorId) {
+      throw new Error('You cannot donate to your own beg');
+    }
+
+    try {
+      await prisma.donation.create({
+        data: {
+          begId: data.begId,
+          donorId: data.donorId,
+          amount: data.amount,
+          isAnonymous: data.isAnonymous,
+          paymentReference: data.paymentReference,
+          paymentMethod: data.paymentMethod,
+          status: 'pending',
+        },
+      });
+    } catch (error: any) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        logger.warn('Duplicate donation payment reference — processing existing', {
+          reference: data.paymentReference,
+        });
+      } else {
+        throw error;
+      }
+    }
 
     return await this.processDonation(data);
   }
@@ -552,6 +555,37 @@ export class DonationService {
   }
 
   /**
+   * Total successful donations by a viewer to a specific beg (for request detail UI).
+   */
+  static async getViewerDonationSummary(
+    donorId: string,
+    begId: string
+  ): Promise<{
+    totalAmount: number;
+    donationCount: number;
+    lastDonatedAt: Date;
+  } | null> {
+    const donations = await prisma.donation.findMany({
+      where: { donorId, begId, status: 'success' },
+      select: { amount: true, createdAt: true },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (donations.length === 0) return null;
+
+    const totalAmount = donations.reduce(
+      (sum, d) => sum + parseFloat(d.amount.toString()),
+      0
+    );
+
+    return {
+      totalAmount,
+      donationCount: donations.length,
+      lastDonatedAt: donations[0].createdAt,
+    };
+  }
+
+  /**
    * Get all successful donations for a specific beg (for update validation)
    */
   static async getDonationsByBegId(begId: string): Promise<any[]> {
@@ -608,17 +642,3 @@ export class DonationService {
     }
   }
 }
-// ```
-
-// **Only one thing changed** — Steps 10, 11 and 12 now use the queue:
-// ```
-// ❌ Before (direct):
-// await TrustScoreService.invalidateTrustScoreCache(recipientId)
-// await TrustScoreService.invalidateTrustScoreCache(donorId)
-// await TrustScoreService.calculateTrustScore(recipientId)
-// await TrustScoreService.calculateTrustScore(donorId)
-
-// ✅ After (queue with direct fallback):
-// trustScoreQueue.add('invalidate', ...) → trust-score.processor.ts handles it
-// trustScoreQueue.add('recalculate', ...) → trust-score.processor.ts handles it
-// ↓ if queue down → falls back to direct TrustScoreService calls

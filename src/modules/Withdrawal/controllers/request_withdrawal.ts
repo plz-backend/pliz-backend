@@ -22,7 +22,7 @@ export const requestWithdrawal = async (
 ): Promise<void> => {
   try {
     const userId = (req as any).user?.userId;
-    const { begId, bankAccountId } = req.body;
+    const { begId, bankAccountId, transactionPin } = req.body;
 
     if (!begId) {
       sendResponse(res, 400, {
@@ -35,7 +35,8 @@ export const requestWithdrawal = async (
     const withdrawal = await WithdrawalService.requestWithdrawal(
       userId,
       begId,
-      bankAccountId
+      bankAccountId,
+      transactionPin
     );
 
     const amountToReceive = parseFloat(withdrawal.amountToReceive.toString());

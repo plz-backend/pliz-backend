@@ -1,8 +1,10 @@
 import prisma from '../../../config/database';
 import { getIO, isUserOnline } from '../../../config/socket';
 import logger from '../../../config/logger';
+import redisClient from '../../../config/redis';
 
 export type NotificationType =
+  | 'beg_approved'
   | 'beg_funded'
   | 'donation_received'
   | 'message_received'
@@ -16,14 +18,33 @@ interface CreateNotificationPayload {
   data?: Record<string, any>;
 }
 
+const UNREAD_COUNT_CACHE_PREFIX = 'notif_unread:';
+const UNREAD_COUNT_CACHE_TTL = 30; // seconds
+
 export class NotificationService {
+  private static unreadCacheKey(userId: string): string {
+    return `${UNREAD_COUNT_CACHE_PREFIX}${userId}`;
+  }
+
+  private static async invalidateUnreadCache(userId: string): Promise<void> {
+    try {
+      await redisClient.getClient().del(this.unreadCacheKey(userId));
+    } catch (error: any) {
+      logger.warn('Failed to invalidate unread notification cache', {
+        userId,
+        error: error.message,
+      });
+    }
+  }
+
   /**
    * Core method
    * 1. Always saves to DB (offline users read on next login)
    * 2. Emits real-time via Socket.io if user is currently online
    * Never throws - notification failure must never break main flow
    */
-  static async send(payload: CreateNotificationPayload): Promise<void> {
+  /** @returns false if persistence failed (errors are logged). */
+  static async send(payload: CreateNotificationPayload): Promise<boolean> {
     try {
       const notification = await prisma.notification.create({
         data: {
@@ -35,6 +56,8 @@ export class NotificationService {
           isRead: false,
         },
       });
+
+      await this.invalidateUnreadCache(payload.userId);
 
       logger.info('Notification saved to DB', {
         notificationId: notification.id,
@@ -60,12 +83,14 @@ export class NotificationService {
           type: payload.type,
         });
       }
+      return true;
     } catch (error: any) {
       logger.error('Failed to send notification', {
         error: error.message,
         userId: payload.userId,
         type: payload.type,
       });
+      return false;
     }
   }
 
@@ -89,6 +114,24 @@ export class NotificationService {
       body: `${from} donated ₦${data.amount.toLocaleString()} to${
         data.begTitle ? ` "${data.begTitle}"` : ' your beg'
       }.`,
+      data: { beg_id: data.begId },
+    });
+  }
+
+  /**
+   * Notify requester that an admin approved their beg (now visible in the community).
+   */
+  static async begApproved(data: {
+    userId: string;
+    begId: string;
+    begTitle: string | null;
+  }): Promise<boolean> {
+    const label = data.begTitle ? `"${data.begTitle}"` : 'Your help request';
+    return this.send({
+      userId: data.userId,
+      type: 'beg_approved',
+      title: '✅ Your request was approved',
+      body: `${label} is now live. Others can see it and contribute.`,
       data: { beg_id: data.begId },
     });
   }
@@ -177,7 +220,7 @@ export class NotificationService {
         orderBy: { createdAt: 'desc' },
       }),
       prisma.notification.count({ where: { userId } }),
-      prisma.notification.count({ where: { userId, isRead: false } }),
+      this.getUnreadCount(userId),
     ]);
 
     return {
@@ -197,7 +240,29 @@ export class NotificationService {
   }
 
   static async getUnreadCount(userId: string): Promise<number> {
-    return prisma.notification.count({ where: { userId, isRead: false } });
+    const cacheKey = this.unreadCacheKey(userId);
+    try {
+      const cached = await redisClient.getClient().get(cacheKey);
+      if (cached !== null) {
+        return parseInt(cached, 10);
+      }
+    } catch (error: any) {
+      logger.warn('Unread count cache read failed', { userId, error: error.message });
+    }
+
+    const count = await prisma.notification.count({
+      where: { userId, isRead: false },
+    });
+
+    try {
+      await redisClient
+        .getClient()
+        .setEx(cacheKey, UNREAD_COUNT_CACHE_TTL, String(count));
+    } catch (error: any) {
+      logger.warn('Unread count cache write failed', { userId, error: error.message });
+    }
+
+    return count;
   }
 
   static async markAsRead(notificationId: string, userId: string): Promise<void> {
@@ -205,6 +270,7 @@ export class NotificationService {
       where: { id: notificationId, userId },
       data: { isRead: true },
     });
+    await this.invalidateUnreadCache(userId);
   }
 
   static async markAllAsRead(userId: string): Promise<void> {
@@ -212,11 +278,13 @@ export class NotificationService {
       where: { userId, isRead: false },
       data: { isRead: true },
     });
+    await this.invalidateUnreadCache(userId);
   }
 
   static async deleteNotification(notificationId: string, userId: string): Promise<void> {
     await prisma.notification.deleteMany({
       where: { id: notificationId, userId },
     });
+    await this.invalidateUnreadCache(userId);
   }
 }

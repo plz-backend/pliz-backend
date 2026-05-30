@@ -1,21 +1,22 @@
 import 'dotenv/config';
 import http from 'http';
+import { validateEnv } from './config/env';
 import { connectDB, disconnectDB } from './config/database';
 import redisClient from './config/redis';
 import { EmailService } from './modules/auth/services/emailService';
 import { CategoryService } from './modules/Beg/services/category.service';
 import { initializeSocket } from './config/socket';
-import { initializeQueues } from './queue';
-import {donationWorker} from './queue/processors/donation.processor';
-import {withdrawalWorker} from './queue/processors/withdrawal.processor';
-import {emailWorker} from './queue/processors/email.processor';
-import {trustScoreWorker} from './queue/processors/trust-score.processor';
-import {begExpiryWorker} from './queue/processors/beg-expiry.processor';  
+import { EmojiService } from './modules/Reactions/services/emoji.service';
 import logger from './config/logger';
 import { createApp } from './app';
+import { GenericEmailService } from './services/email.service';
+import { LocationService } from './modules/Location/services/location.service';
+import { startBegMaintenanceCron } from './modules/Beg/beg_extend_notification/cron';
 
 const startServer = async (): Promise<void> => {
   try {
+    validateEnv();
+
     // 1. Connect to PostgreSQL
     await connectDB();
 
@@ -28,73 +29,85 @@ const startServer = async (): Promise<void> => {
     // 4. Initialize email service
     EmailService.initialize();
 
-    // 5. Initialize queue workers — MUST be after Redis connects
+    // 5. Initialize generic email service
+    GenericEmailService.initialize();
+
+    // 6. Preload emojis into Redis cache
     try {
-      await initializeQueues();
-      logger.info('Queue workers initialized successfully');
-    } catch (queueError: any) {
-      // Don't crash server — queues have direct processing fallback
-      logger.warn('Queue initialization failed — falling back to direct processing', {
-        error: queueError.message,
+      await EmojiService.getAllEmojis();
+      logger.info('✅ Emojis preloaded into cache');
+    } catch (error: any) {
+      logger.warn('⚠️ Emoji preload failed — will load on first request', {
+        error: error.message,
       });
     }
 
-    // 6. Create Express app
+    // 7. Create Express app
     const app = createApp();
 
-    // 7. Wrap with HTTP server so Socket.io can attach
+    // 8. Wrap with HTTP server
     const server = http.createServer(app);
 
-    // 8. Initialize Socket.io (real-time notifications)
+    // 9. Initialize Socket.io
     initializeSocket(server);
+
+    // 10. Preload location data
+    try {
+      await LocationService.getAllLocationData();
+      logger.info('✅ Location data preloaded into cache');
+    } catch (error: any) {
+      logger.warn('⚠️ Location data preload failed — will load on first request', {
+        error: error.message,
+      });
+    }
+
+    if (process.env.SCHEDULER_ENABLED !== 'false') {
+      startBegMaintenanceCron();
+    } else {
+      logger.info('API scheduler disabled by SCHEDULER_ENABLED=false');
+    }
 
     const PORT = process.env.PORT || 3000;
 
-    // Use server.listen (not app.listen) for Socket.io to work
     server.listen(PORT, () => {
       console.log(`
 ╔════════════════════════════════════════════════════════════════╗
 ║                                                                ║
-║   🚀 PLZ APP - Server Running                                  ║
+║   🚀 PLZ APP - API Server Running                              ║
 ║                                                                ║
 ╚════════════════════════════════════════════════════════════════╝
 ✅ PostgreSQL connected
 ✅ Redis connected
 ✅ Email service initialized
-✅ Socket.io initialized (real-time notifications)
-✅ Queue workers initialized (BullMQ)
-✅ Server started successfully
+✅ Socket.io initialized
+✅ Emojis preloaded into cache
+✅ API Server started successfully
 
 📍 Port:          ${PORT}
-🌐 API:           ${process.env.BASE_URL}:${PORT}/api
-💚 Health:        ${process.env.BASE_URL}:${PORT}/health
-🔐 Auth:          ${process.env.BASE_URL}:${PORT}/api/auth
-📱 Sessions:      ${process.env.BASE_URL}:${PORT}/api/sessions
-💰 Donations:     ${process.env.BASE_URL}:${PORT}/api/donations
-🔔 Notifications: ${process.env.BASE_URL}:${PORT}/api/notifications
-📖 Stories:       ${process.env.BASE_URL}:${PORT}/api/stories
-🪝 Webhook:       ${process.env.BASE_URL}:${PORT}/webhooks/paystack
-📊 Queue Health:  ${process.env.BASE_URL}:${PORT}/api/admin/queues/health
-🌐 API:           ${process.env.BASE_URL}:${PORT}/api
-💚 Health:        ${process.env.BASE_URL}:${PORT}/health
-🔐 Auth:          ${process.env.BASE_URL}:${PORT}/api/auth
-📱 Sessions:      ${process.env.BASE_URL}:${PORT}/api/sessions
-💰 Donations:     ${process.env.BASE_URL}:${PORT}/api/donations
-🔔 Notifications: ${process.env.BASE_URL}:${PORT}/api/notifications
-🪝 Webhook:       ${process.env.BASE_URL}:${PORT}/webhooks/paystack
+🌐 API:           http://localhost:${PORT}/api
+💚 Health:        http://localhost:${PORT}/health
+🔐 Auth:          http://localhost:${PORT}/api/auth
+📱 Sessions:      http://localhost:${PORT}/api/sessions
+💰 Donations:     http://localhost:${PORT}/api/donations
+🔔 Notifications: http://localhost:${PORT}/api/notifications
+📖 Stories:       http://localhost:${PORT}/api/stories
+😊 Reactions:     http://localhost:${PORT}/api/reactions
+🎫 Support:       http://localhost:${PORT}/api/support
+🤖 AI Chat:       http://localhost:${PORT}/api/support/chat
+🖼️  Profile Pic:  http://localhost:${PORT}/api/profile-picture
+🪝 Webhook:       http://localhost:${PORT}/webhooks/flutterwave
+📍 Location:      http://localhost:${PORT}/api/location
 
 Environment: ${process.env.NODE_ENV || 'development'}
 Database:    PostgreSQL
 Cache:       Redis
-Email:       ${process.env.EMAIL_HOST || 'Not configured'}
-Payments:    Paystack
-Queues:      BullMQ (donations, withdrawals, emails, trust, expiry)
+Payments:    Flutterwave
+Scheduler:   node-cron in API process
       `);
 
-      logger.info('Server started successfully', { port: PORT });
+      logger.info('API Server started successfully', { port: PORT });
     });
 
-    // Handle server errors
     server.on('error', (error: any) => {
       if (error.code === 'EADDRINUSE') {
         logger.error(`Port ${PORT} is already in use`);
@@ -110,31 +123,11 @@ Queues:      BullMQ (donations, withdrawals, emails, trust, expiry)
   }
 };
 
-// ============================================
-// GRACEFUL SHUTDOWN
-// ============================================
 const gracefulShutdown = async (signal: string): Promise<void> => {
   logger.info(`${signal} received, shutting down gracefully`);
-
-  // 1. Close queue workers first — prevents losing in-progress jobs
-  try {
-    await Promise.all([
-      donationWorker.close(),
-      withdrawalWorker.close(),
-      emailWorker.close(),
-      trustScoreWorker.close(),
-      begExpiryWorker.close(),
-    ]);
-    logger.info('Queue workers closed');
-  } catch (error: any) {
-    logger.warn('Error closing queue workers', { error: error.message });
-  }
-
-  // 2. Disconnect DB and Redis
   await disconnectDB();
   await redisClient.disconnect();
-
-  logger.info('Graceful shutdown complete');
+  logger.info('Server shutdown complete');
   process.exit(0);
 };
 

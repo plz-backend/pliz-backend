@@ -175,6 +175,43 @@ export class CacheService {
   }
 
   // ============================================
+  // GET /me RESPONSE CACHE
+  // ============================================
+
+  static async getMeCache(userId: string): Promise<any | null> {
+    try {
+      const client = redisClient.getClient();
+      const data = await client.get(`me:${userId}`);
+      return data ? JSON.parse(data) : null;
+    } catch (error) {
+      logger.error('Failed to get /me cache', { error, userId });
+      return null;
+    }
+  }
+
+  static async setMeCache(
+    userId: string,
+    payload: unknown,
+    expirySeconds: number = 60
+  ): Promise<void> {
+    try {
+      const client = redisClient.getClient();
+      await client.setEx(`me:${userId}`, expirySeconds, JSON.stringify(payload));
+    } catch (error) {
+      logger.error('Failed to set /me cache', { error, userId });
+    }
+  }
+
+  static async invalidateMeCache(userId: string): Promise<void> {
+    try {
+      const client = redisClient.getClient();
+      await client.del(`me:${userId}`);
+    } catch (error) {
+      logger.error('Failed to invalidate /me cache', { error, userId });
+    }
+  }
+
+  // ============================================
   // EMAIL VERIFICATION OTP
   // ============================================
 
@@ -391,6 +428,43 @@ export class CacheService {
    */
   static async verifyPasswordResetToken(token: string): Promise<string | null> {
     return this.getPasswordResetToken(token);
+  }
+
+  // ============================================
+  // PHONE OTP (KYC)
+  // ============================================
+
+  static async storePhoneOtpCode(
+    userId: string,
+    otp: string,
+    expirySeconds: number = 600
+  ): Promise<void> {
+    const bcrypt = await import('bcryptjs');
+    const client = redisClient.getClient();
+    const hash = await bcrypt.hash(otp, 10);
+    await client.setEx(`phone_otp:${userId}`, expirySeconds, hash);
+  }
+
+  static async verifyPhoneOtpCode(userId: string, otp: string): Promise<boolean> {
+    try {
+      const bcrypt = await import('bcryptjs');
+      const client = redisClient.getClient();
+      const hash = await client.get(`phone_otp:${userId}`);
+      if (!hash) return false;
+      return bcrypt.compare(otp, hash);
+    } catch (error) {
+      logger.error('Failed to verify phone OTP code', { error, userId });
+      return false;
+    }
+  }
+
+  static async deletePhoneOtpCode(userId: string): Promise<void> {
+    try {
+      const client = redisClient.getClient();
+      await client.del(`phone_otp:${userId}`);
+    } catch (error) {
+      logger.error('Failed to delete phone OTP code', { error, userId });
+    }
   }
 
   // ============================================

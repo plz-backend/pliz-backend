@@ -2,6 +2,9 @@ import { Request, Response } from 'express';
 import prisma from '../../../../config/database';
 import { AdminService } from '../../services/admin.service';
 import { IApiResponse } from '../../../auth/types/user.interface';
+import { NotificationService } from '../../../notifications/services/notification.service';
+import { CooldownService } from '../../../../services/cooldown.service';
+import { TrustScoreService } from '../../../../services/trust_score.service';
 import logger from '../../../../config/logger';
 
 const sendResponse = <T = any>(
@@ -35,11 +38,11 @@ interface BegParams {
  * @access  Admin
  */
 export const approveBeg = async (
-  req: Request<BegParams>,
+  req: Request,
   res: Response
 ): Promise<void> => {
   try {
-    const { id } = req.params;
+    const id = String(req.params.id);
     const adminId = (req as any).user?.userId;
     const ip = req.ip || req.headers['x-forwarded-for'] as string || 'unknown';
 
@@ -52,6 +55,7 @@ export const approveBeg = async (
         approved: true,
         status: true,
         userId: true,
+        expiryHours: true,
         category: {                        // ← added
           select: { name: true, icon: true },
         },
@@ -74,15 +78,71 @@ export const approveBeg = async (
       return;
     }
 
-    // Approve beg
+    const trustInfo = await TrustScoreService.getUserTrustInfo(beg.userId);
+
+    const cooldownInfo = await CooldownService.checkCooldown(beg.userId);
+    if (cooldownInfo.isOnCooldown) {
+      sendResponse(res, 429, {
+        success: false,
+        message: cooldownInfo.message || 'User is currently on cooldown',
+        data: {
+          nextRequestAllowedAt: cooldownInfo.nextRequestAllowedAt,
+          hoursRemaining: cooldownInfo.hoursRemaining,
+        },
+      });
+      return;
+    }
+
+    const requestCountInfo = await CooldownService.checkDailyRequestCount(
+      beg.userId,
+      trustInfo.tier
+    );
+    if (!requestCountInfo.canRequest) {
+      sendResponse(res, 429, {
+        success: false,
+        message: `User has reached their daily limit of ${requestCountInfo.limit} approved request${requestCountInfo.limit > 1 ? 's' : ''}`,
+        data: requestCountInfo,
+      });
+      return;
+    }
+
+    const approvedAt = new Date();
+    const expiresAt = new Date(approvedAt);
+    expiresAt.setHours(expiresAt.getHours() + beg.expiryHours);
+
+    // Approve beg — countdown starts from approval, not submission
     const updatedBeg = await prisma.beg.update({
       where: { id },
       data: {
         approved: true,
-        approvedAt: new Date(),
+        approvedAt,
         approvedBy: adminId,
+        expiresAt,
       },
     });
+
+    // Cooldown, daily limit, and request stats start from approval.
+    await Promise.all([
+      CooldownService.setCooldown(beg.userId, trustInfo.tier),
+      CooldownService.incrementDailyRequestCount(beg.userId),
+      prisma.userStats.upsert({
+        where: { userId: beg.userId },
+        update: { requestsCount: { increment: 1 } },
+        create: {
+          userId: beg.userId,
+          requestsCount: 1,
+          totalReceived: 0,
+          totalDonated: 0,
+          abuseFlags: 0,
+        },
+      }),
+      TrustScoreService.invalidateTrustScoreCache(beg.userId),
+      prisma.userTrust.upsert({
+        where: { userId: beg.userId },
+        update: { lastRequestAt: approvedAt },
+        create: { userId: beg.userId, lastRequestAt: approvedAt },
+      }),
+    ]);
 
     const begTitle = buildBegTitle(beg.category, beg.description);  // ← uses helper
 
@@ -107,6 +167,18 @@ export const approveBeg = async (
       adminId,
     });
 
+    const notified = await NotificationService.begApproved({
+      userId: beg.userId,
+      begId: id,
+      begTitle,
+    });
+    if (!notified) {
+      logger.error('Beg approved but inbox notification was not persisted', {
+        begId: id,
+        userId: beg.userId,
+      });
+    }
+
     sendResponse(res, 200, {
       success: true,
       message: 'Beg approved successfully',
@@ -114,6 +186,7 @@ export const approveBeg = async (
         id: updatedBeg.id,
         approved: updatedBeg.approved,
         approved_at: updatedBeg.approvedAt,
+        expires_at: updatedBeg.expiresAt,
       },
     });
   } catch (error: any) {

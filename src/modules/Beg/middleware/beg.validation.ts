@@ -41,6 +41,12 @@ export const createBegValidation = [
     .withMessage('Expiry must be 24 hours, 72 hours, or 7 days (168 hours)')
     .toInt(),
 
+  body('isAnonymous')
+    .optional()
+    .isBoolean()
+    .withMessage('isAnonymous must be true or false')
+    .toBoolean(),
+
   body('mediaType')
     .optional()
     .isIn(['video', 'audio', 'text'])

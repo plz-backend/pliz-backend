@@ -18,14 +18,19 @@ const QUICK_DONATION_AMOUNTS = [1000, 2000, 3000, 5000];
 
 /**
  * @route   POST /api/donations/initialize
- * @desc    Start a donation - returns Paystack payment URL or charges saved card
+ * @desc    Start a donation — returns Flutterwave payment URL
  * @access  Private
  */
-export const initializeDonation = async (req: Request, res: Response): Promise<void> => {
+export const initializeDonation = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
     const donorId = (req as any).user?.userId;
-    const { begId, amount, isAnonymous, paymentMethod, savedCardId } = req.body;
-    const ip = req.ip || req.headers['x-forwarded-for'] as string || 'unknown';
+    const { begId, amount, isAnonymous, savedCardId, redirectUrl, callbackUrl } = req.body;
+    const checkoutRedirectUrl = (redirectUrl || callbackUrl)?.trim();
+    const ip =
+      req.ip || (req.headers['x-forwarded-for'] as string) || 'unknown';
 
     // ============================================
     // BASIC VALIDATION
@@ -34,27 +39,16 @@ export const initializeDonation = async (req: Request, res: Response): Promise<v
       sendResponse(res, 400, { success: false, message: 'begId is required' });
       return;
     }
-
     if (!amount || typeof amount !== 'number') {
       sendResponse(res, 400, { success: false, message: 'amount must be a number' });
       return;
     }
-
     if (amount < 100) {
       sendResponse(res, 400, { success: false, message: 'Minimum donation is ₦100' });
       return;
     }
-
     if (amount > 100000) {
       sendResponse(res, 400, { success: false, message: 'Maximum donation is ₦100,000' });
-      return;
-    }
-
-    if (!paymentMethod || !['card', 'transfer', 'ussd'].includes(paymentMethod)) {
-      sendResponse(res, 400, {
-        success: false,
-        message: 'paymentMethod must be card, transfer or ussd',
-      });
       return;
     }
 
@@ -70,12 +64,8 @@ export const initializeDonation = async (req: Request, res: Response): Promise<v
 
     if (!trustCheck.allowed) {
       logger.warn('Donation blocked by trust engine', {
-        donorId,
-        begId,
-        amount,
-        reason: trustCheck.reason,
+        donorId, begId, amount, reason: trustCheck.reason,
       });
-
       sendResponse(res, 403, {
         success: false,
         message: trustCheck.reason || 'Donation not allowed',
@@ -103,18 +93,15 @@ export const initializeDonation = async (req: Request, res: Response): Promise<v
       sendResponse(res, 404, { success: false, message: 'Beg not found' });
       return;
     }
-
     if (beg.status !== 'active' || !beg.approved) {
       sendResponse(res, 400, { success: false, message: 'This beg is no longer active' });
       return;
     }
-
     if (new Date() > beg.expiresAt) {
       sendResponse(res, 400, { success: false, message: 'This beg has expired' });
       return;
     }
 
-    // Check remaining amount
     const remaining =
       parseFloat(beg.amountRequested.toString()) -
       parseFloat(beg.amountRaised.toString());
@@ -124,59 +111,70 @@ export const initializeDonation = async (req: Request, res: Response): Promise<v
       return;
     }
 
-    // Adjust amount if exceeds remaining
     const actualAmount = Math.min(amount, remaining);
+
+    // ============================================
+    // PREVIOUS DONATION WARNING
+    // ============================================
+    let previousDonationWarning: string | null = null;
+    if (donorId) {
+      const previousDonation = await prisma.donation.findFirst({
+        where: { begId, donorId, status: 'success' },
+        select: { amount: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (previousDonation) {
+        previousDonationWarning = `You have donated ₦${parseFloat(
+          previousDonation.amount.toString()
+        ).toLocaleString()} to this beg before on ${previousDonation.createdAt.toLocaleDateString()}. Thank you for your continued generosity!`;
+      }
+    }
 
     // ============================================
     // GET DONOR EMAIL
     // ============================================
-    let donorEmail = 'guest@pliz.app';
+    let donorEmail = 'guest@plz.app';
+    let profileAnonymousMode = false;
+
     if (donorId) {
       const donor = await prisma.user.findUnique({
         where: { id: donorId },
-        select: { email: true },
+        select: {
+          email: true,
+          profile: { select: { isAnonymous: true } },
+        },
       });
-      if (donor) donorEmail = donor.email;
+      if (donor) {
+        donorEmail = donor.email;
+        profileAnonymousMode = donor.profile?.isAnonymous ?? false;
+      }
     }
 
-    // Generate unique reference
-    const reference = `DON-${Date.now()}-${Math.random()
+    const effectiveIsAnonymous = Boolean(profileAnonymousMode || isAnonymous);
+
+    const txRef = `PLZ-${Date.now()}-${Math.random()
       .toString(36)
       .substring(2, 9)
       .toUpperCase()}`;
 
     // ============================================
-    // SAVED CARD PAYMENT (INSTANT)
+    // SAVED CARD PAYMENT
     // ============================================
     if (savedCardId && donorId) {
-      logger.info('Processing saved card payment', {
-        donorId,
-        begId,
-        savedCardId,
-        amount: actualAmount,
-      });
-
-      // Charge saved card directly
       const chargeResult = await PaymentMethodService.chargeSavedCard({
         userId: donorId,
         cardId: savedCardId,
         amount: actualAmount,
         email: donorEmail,
-        reference,
+        reference: txRef,
         metadata: {
           beg_id: begId,
           donor_id: donorId,
-          is_anonymous: isAnonymous || false,
+          is_anonymous: effectiveIsAnonymous,
         },
       });
 
       if (!chargeResult.success) {
-        logger.error('Saved card charge failed', {
-          error: chargeResult.error,
-          donorId,
-          savedCardId,
-        });
-
         sendResponse(res, 500, {
           success: false,
           message: chargeResult.error || 'Failed to charge saved card',
@@ -184,25 +182,17 @@ export const initializeDonation = async (req: Request, res: Response): Promise<v
         return;
       }
 
-      // Create donation record (pending - will be updated by webhook)
       const donation = await prisma.donation.create({
         data: {
           begId,
           donorId,
           amount: actualAmount,
-          isAnonymous: isAnonymous || false,
+          isAnonymous: effectiveIsAnonymous,
           paymentMethod: 'saved_card',
-          paymentReference: reference,
-          status: 'pending', // Webhook will update to 'success'
+          paymentReference: txRef,
+          status: 'pending',
           ipAddress: ip,
         },
-      });
-
-      logger.info('Saved card donation initialized', {
-        donationId: donation.id,
-        amount: actualAmount,
-        reference,
-        donorId,
       });
 
       sendResponse(res, 201, {
@@ -211,75 +201,72 @@ export const initializeDonation = async (req: Request, res: Response): Promise<v
         data: {
           donation_id: donation.id,
           amount: actualAmount,
-          payment_reference: reference,
+          tx_ref: txRef,
+          payment_reference: txRef,
           payment_method: 'saved_card',
           status: chargeResult.status,
+          previous_donation_warning: previousDonationWarning,
         },
       });
       return;
     }
 
     // ============================================
-    // REGULAR PAYSTACK CHECKOUT FLOW
+    // FLUTTERWAVE CHECKOUT
     // ============================================
     const payment = await PaymentService.initializePayment({
       email: donorEmail,
       amount: actualAmount,
-      reference,
+      reference: txRef,
       begId,
       donorId,
-      isAnonymous: isAnonymous || false,
+      isAnonymous: effectiveIsAnonymous,
+      redirectUrl: checkoutRedirectUrl,
     });
 
     if (!payment.success) {
-      logger.error('Payment initialization failed', {
-        error: payment.error,
-        reference,
-      });
-
       sendResponse(res, 500, { success: false, message: payment.error! });
       return;
     }
 
-    // Create PENDING donation record
     const donation = await prisma.donation.create({
       data: {
         begId,
         donorId: donorId || null,
         amount: actualAmount,
-        isAnonymous: isAnonymous || false,
-        paymentMethod,
-        paymentReference: reference,
+        isAnonymous: effectiveIsAnonymous,
+        paymentMethod: 'card',
+        paymentReference: txRef,
         status: 'pending',
         ipAddress: ip,
       },
     });
 
-    logger.info('Donation initialized', {
+    logger.info('Donation initialized via Flutterwave', {
       donationId: donation.id,
       amount: actualAmount,
-      reference,
+      txRef,
       donorId: donorId || 'guest',
-      ipAddress: ip,
     });
 
     sendResponse(res, 201, {
       success: true,
-      message: 'Please complete payment',
+      message: 'Please complete your payment',
       data: {
         donation_id: donation.id,
         amount: actualAmount,
-        payment_reference: reference,
-        payment_url: payment.authorizationUrl,
+        tx_ref: txRef,
+        payment_reference: txRef,
+        payment_url: payment.paymentUrl,
         quick_amounts: QUICK_DONATION_AMOUNTS,
+        previous_donation_warning: previousDonationWarning,
       },
     });
   } catch (error: any) {
-    logger.error('Initialize donation error', { 
-      error: error.message, 
-      stack: error.stack 
+    logger.error('Initialize donation error', {
+      error: error.message,
+      stack: error.stack,
     });
-    
     sendResponse(res, 500, {
       success: false,
       message: 'An error occurred while processing your donation',

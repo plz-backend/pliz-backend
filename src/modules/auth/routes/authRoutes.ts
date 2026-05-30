@@ -15,6 +15,7 @@ import { getMe } from '../controllers/Authentication/get_me';
 import { refreshToken } from '../controllers/Authentication/refresh_token';
 import { invalidateRefreshCookie } from '../controllers/Authentication/invalidate_refresh_cookie';
 import { createAdminUser } from '../controllers/Authentication/create_admin_user';
+import { acceptAdminInvite } from '../controllers/Authentication/accept_admin_invite';
 import { googleLogin, appleLogin } from '../controllers/Authentication/oauth.controller';
 import { googleLoginValidation, appleLoginValidation } from '../middleware/auth/oauth.validation';
 
@@ -23,6 +24,8 @@ import { googleLoginValidation, appleLoginValidation } from '../middleware/auth/
 import { authenticate } from '../middleware/auth/auth';
 import { validateRequest } from '../middleware/auth/validateRequest';
 import { requireAdmin } from '../../admin/middleware/admin_auth';
+import { requirePermission } from '../../admin/middleware/requirePermission';
+import { AdminPermission } from '../../admin/permissions';
 
 // Validations
 import {
@@ -42,6 +45,12 @@ import {
 } from '../middleware/auth/rateLimiter';
 
 const router = express.Router();
+
+const frontendBaseUrl = (): string => (
+  process.env.FRONTEND_URL ||
+  process.env.EXPO_PUBLIC_FRONTEND_URL ||
+  'http://localhost:8081'
+).replace(/\/$/, '');
 
 // ============================================
 // PUBLIC ROUTES
@@ -139,6 +148,14 @@ router.post(
  * @desc    Reset password with token
  * @access  Public
  */
+router.get('/reset-password', (req, res) => {
+  const token = typeof req.query.token === 'string' ? req.query.token.trim() : '';
+  const redirectUrl = token
+    ? `${frontendBaseUrl()}/reset-password?token=${encodeURIComponent(token)}`
+    : `${frontendBaseUrl()}/forgot-password`;
+  res.redirect(302, redirectUrl);
+});
+
 router.post(
   '/reset-password',
   authLimiter,
@@ -159,7 +176,7 @@ router.post(
 router.get(
   '/me',
   authenticate,
-  generalLimiter,  
+  generalLimiter,
   getMe
 );
 
@@ -205,25 +222,29 @@ router.post(
 // OAUTH ROUTES (PUBLIC)
 // ============================================ 
 // POST /api/auth/google
-router.post('/google', googleLoginValidation, validateRequest, googleLogin);
+router.post('/google', authLimiter, googleLoginValidation, validateRequest, googleLogin);
 
 // POST /api/auth/apple
-router.post('/apple', appleLoginValidation, validateRequest, appleLogin);
+router.post('/apple', authLimiter, appleLoginValidation, validateRequest, appleLogin);
+
+// ============================================
+// ADMIN TEAM INVITE (PUBLIC)
+// ============================================
+router.post('/admin/accept-invite', authLimiter, acceptAdminInvite);
 
 // ============================================
 // ADMIN ROUTES (PROTECTED)
 // ============================================
 
 /**
- * @route   POST /api/auth/admin/create-user
- * @desc    Create admin or superadmin user
- * @access  Admin/SuperAdmin only
+ * @deprecated Prefer POST /api/admin/team/invite — kept for super admin tooling
  */
 router.post(
   '/admin/create-user',
   authenticate,
   requireAdmin,
-  authLimiter,  
+  requirePermission(AdminPermission.TEAM_MANAGE),
+  authLimiter,
   createAdminUser
 );
 

@@ -3,6 +3,7 @@ import { TokenService } from '../../services/tokenService';
 import { CacheService } from '../../services/cacheService';
 import { IJWTPayload, IApiResponse } from '../../types/user.interface';
 import logger from '../../../../config/logger';
+import { setRequestUserId } from '../../../../config/request-context';
 
 // Extend Express Request type
 declare global {
@@ -80,6 +81,7 @@ export const authenticate = async (
 
     // Attach user to request
     req.user = decoded;
+    setRequestUserId(decoded.userId);
 
     logger.debug('User authenticated successfully', {
       userId: decoded.userId,
@@ -98,5 +100,39 @@ export const authenticate = async (
     };
 
     res.status(500).json(response);
+  }
+};
+
+/**
+ * Optional authentication — attaches user when a valid Bearer token is present;
+ * continues anonymously when missing or invalid.
+ */
+export const authenticateOptional = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      next();
+      return;
+    }
+
+    const token = authHeader.substring(7);
+    const isBlacklisted = await CacheService.isTokenBlacklisted(token);
+    if (isBlacklisted) {
+      next();
+      return;
+    }
+
+    const decoded = TokenService.verifyAccessToken(token);
+    if (decoded) {
+      req.user = decoded;
+      setRequestUserId(decoded.userId);
+    }
+    next();
+  } catch {
+    next();
   }
 };

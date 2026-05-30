@@ -56,7 +56,7 @@ export const refreshToken = async (
     const email = decoded?.email;
 
     if (!userId || !email) {
-      logger.warn('Invalid token payload', { decoded });
+      logger.warn('Invalid token payload', { userId: decoded?.userId ?? null });
       const response: IApiResponse = {
         success: false,
         message: 'Invalid token payload',

@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import prisma from '../../../../config/database';
 import { IApiResponse } from '../../types/user.interface';
 import logger from '../../../../config/logger';
+import { CacheService } from '../../services/cacheService';
 
 const sendResponse = <T = any>(
   res: Response,
@@ -102,6 +103,8 @@ export const updateProfile = async (
     });
 
     logger.info('Profile updated successfully', { userId });
+
+    await CacheService.invalidateMeCache(userId);
 
     sendResponse(res, 200, {
       success: true,
