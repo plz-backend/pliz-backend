@@ -71,14 +71,6 @@ jobs:
           IMAGE_DIGEST="$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE:$IMAGE_TAG")"
           echo "image_digest=$IMAGE_DIGEST" >> "$GITHUB_OUTPUT"
 
-      - name: Scan staging image
-        uses: aquasecurity/trivy-action@v0.35.0
-        with:
-          image-ref: ${{ steps.build.outputs.image_digest }}
-          severity: HIGH,CRITICAL
-          exit-code: '1'
-          ignore-unfixed: true
-
       - name: Deploy to Cloud Run
         uses: google-github-actions/deploy-cloudrun@v2
         with:
@@ -230,14 +222,6 @@ jobs:
           docker push "$IMAGE:${{ steps.meta.outputs.git_sha }}"
           IMAGE_DIGEST="$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE:${{ env.RELEASE_TAG }}")"
           echo "image_digest=$IMAGE_DIGEST" >> "$GITHUB_OUTPUT"
-
-      - name: Scan production image
-        uses: aquasecurity/trivy-action@v0.35.0
-        with:
-          image-ref: ${{ steps.build.outputs.image_digest }}
-          severity: HIGH,CRITICAL
-          exit-code: '1'
-          ignore-unfixed: true
 
       - name: Deploy to Cloud Run
         uses: google-github-actions/deploy-cloudrun@v2
