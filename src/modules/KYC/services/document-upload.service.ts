@@ -3,7 +3,7 @@ import { getSupabaseClient } from '../../../config/supabase';
 import logger from '../../../config/logger';
 
 const BUCKET = process.env.SUPABASE_KYC_BUCKET || 'kyc-documents';
-const DEFAULT_SIGNED_URL_TTL_SECONDS = 60 * 60; // 1 hour for admin review
+const DEFAULT_SIGNED_URL_TTL_SECONDS = 10 * 60; // short-lived admin review URL
 
 export class KYCDocumentUploadService {
 

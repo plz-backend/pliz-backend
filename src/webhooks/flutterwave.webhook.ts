@@ -42,6 +42,11 @@ async function handleFlutterwaveWebhook(req: Request, res: Response) {
 
       const { tx_ref, id: transactionId, status, currency } = data;
 
+      if (!tx_ref || !transactionId) {
+        logger.warn('Webhook ignored — missing transaction reference or id');
+        return res.status(200).json({ status: 'ignored' });
+      }
+
       if (status !== 'successful' || currency !== 'NGN') {
         logger.info('Webhook ignored — not successful or not NGN', {
           status,
@@ -70,21 +75,39 @@ async function handleFlutterwaveWebhook(req: Request, res: Response) {
       let begId = metadata.beg_id as string | undefined;
       let donorId = (metadata.donor_id as string | undefined) ?? '';
       let isAnonymous = Boolean(metadata.is_anonymous);
+      let matchedLocalDonation = false;
 
       if (!begId && tx_ref) {
         const pending = await prisma.donation.findFirst({
           where: { paymentReference: tx_ref },
-          select: { begId: true, donorId: true, isAnonymous: true },
+          select: { begId: true, donorId: true, isAnonymous: true, amount: true, status: true },
         });
         if (pending) {
+          const expectedAmount = Number(pending.amount);
+          const verifiedAmount = Number(verification.data.amount);
+          if (
+            pending.status !== 'pending' ||
+            !Number.isFinite(expectedAmount) ||
+            !Number.isFinite(verifiedAmount) ||
+            expectedAmount !== verifiedAmount
+          ) {
+            logger.warn('Webhook ignored — local donation mismatch', {
+              txRef: tx_ref,
+              localStatus: pending.status,
+              expectedAmount,
+              verifiedAmount,
+            });
+            return res.status(200).json({ status: 'ignored' });
+          }
           begId = pending.begId;
           donorId = pending.donorId ?? '';
           isAnonymous = pending.isAnonymous;
+          matchedLocalDonation = true;
         }
       }
 
-      if (!begId) {
-        logger.error('Webhook: missing beg_id', { txRef: tx_ref });
+      if (!begId || !matchedLocalDonation) {
+        logger.error('Webhook: missing matching local pending donation', { txRef: tx_ref });
         return res.status(200).json({ status: 'ignored' });
       }
 

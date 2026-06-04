@@ -1,5 +1,6 @@
 import multer from 'multer';
 import { Request, Response, NextFunction } from 'express';
+import sharp from 'sharp';
 
 const storage = multer.memoryStorage();
 
@@ -30,7 +31,7 @@ export const handleKYCUpload = (
   res: Response,
   next: NextFunction
 ): void => {
-  upload(req, res, (err: any) => {
+  upload(req, res, async (err: any) => {
     if (err instanceof multer.MulterError) {
       if (err.code === 'LIMIT_FILE_SIZE') {
         res.status(400).json({
@@ -46,6 +47,27 @@ export const handleKYCUpload = (
       res.status(400).json({ success: false, message: err.message });
       return;
     }
-    next();
+    try {
+      if (!req.file?.buffer) {
+        res.status(400).json({ success: false, message: 'Document file is required.' });
+        return;
+      }
+
+      const metadata = await sharp(req.file.buffer).metadata();
+      const allowedFormats = new Set(['jpeg', 'png', 'webp', 'heif']);
+      if (!metadata.format || !allowedFormats.has(metadata.format)) {
+        res.status(400).json({
+          success: false,
+          message: 'Invalid image file. Please upload JPEG, PNG, WebP, or HEIC.',
+        });
+        return;
+      }
+      next();
+    } catch {
+      res.status(400).json({
+        success: false,
+        message: 'Invalid image file. Please upload a valid document image.',
+      });
+    }
   });
 };

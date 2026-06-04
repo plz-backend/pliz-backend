@@ -1,6 +1,11 @@
 import prisma from '../../../config/database';
 import axios from 'axios';
 import logger from '../../../config/logger';
+import {
+  encryptText,
+  maskAccountNumber,
+  stableSecretHash,
+} from '../../../utils/crypto.util';
 
 interface NigerianBank {
   name: string;
@@ -78,7 +83,7 @@ export class BankService {
       const data = response.data.data;
 
       logger.info('Bank account verified via Flutterwave', {
-        accountNumber,
+        accountNumber: maskAccountNumber(accountNumber),
         accountName: data.account_name,
       });
 
@@ -90,7 +95,7 @@ export class BankService {
     } catch (error: any) {
       logger.error('Bank verification failed', {
         error: error.response?.data || error.message,
-        accountNumber,
+        accountNumber: maskAccountNumber(accountNumber),
         bankCode,
       });
       throw new Error(
@@ -109,19 +114,28 @@ export class BankService {
   ): Promise<any> {
     try {
       const verified = await this.verifyBankAccount(accountNumber, bankCode);
+      const accountHash = stableSecretHash(verified.accountNumber);
       const banks = await this.getNigerianBanks();
       const bank = banks.find((b) => b.code === bankCode);
 
       if (!bank) throw new Error('Invalid bank code');
 
       const existing = await prisma.bankAccount.findFirst({
-        where: { userId, accountNumber },
+        where: {
+          userId,
+          OR: [
+            { accountNumberHash: accountHash },
+            { accountNumber: verified.accountNumber },
+          ],
+        },
       });
 
       if (existing) {
         logger.info('Bank account already on file — returning existing', {
           userId,
-          accountNumber: existing.accountNumber,
+          accountNumber: existing.accountNumberLast4
+            ? `******${existing.accountNumberLast4}`
+            : maskAccountNumber(existing.accountNumber),
         });
         return existing;
       }
@@ -133,7 +147,10 @@ export class BankService {
       const bankAccount = await prisma.bankAccount.create({
         data: {
           userId,
-          accountNumber: verified.accountNumber,
+          accountNumber: maskAccountNumber(verified.accountNumber),
+          accountNumberEncrypted: encryptText(verified.accountNumber),
+          accountNumberHash: accountHash,
+          accountNumberLast4: verified.accountNumber.slice(-4),
           accountName: verified.accountName,
           bankCode: verified.bankCode,
           bankName: bank.name,
@@ -162,12 +179,13 @@ export class BankService {
   // ============================================
   static async getUserBankAccounts(userId: string): Promise<any[]> {
     try {
-      return await prisma.bankAccount.findMany({
+      const accounts = await prisma.bankAccount.findMany({
         where: { userId },
         orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }],
         select: {
           id: true,
           accountNumber: true,
+          accountNumberLast4: true,
           accountName: true,
           bankCode: true,
           bankName: true,
@@ -176,6 +194,13 @@ export class BankService {
           createdAt: true,
         },
       });
+
+      return accounts.map((account) => ({
+        ...account,
+        accountNumber: account.accountNumberLast4
+          ? `******${account.accountNumberLast4}`
+          : maskAccountNumber(account.accountNumber),
+      }));
     } catch (error: any) {
       logger.error('Failed to get bank accounts', {
         error: error.message, userId,

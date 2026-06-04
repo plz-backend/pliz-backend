@@ -1,6 +1,7 @@
 import rateLimit from 'express-rate-limit';
 import { Request, Response } from 'express';
 import { IApiResponse } from '../../types/user.interface';
+import redisClient from '../../../../config/redis';
 
 /**
  * Custom rate limit handler
@@ -13,12 +14,49 @@ const rateLimitHandler = (req: Request, res: Response): void => {
   res.status(429).json(response);
 };
 
+class RedisRateLimitStore {
+  windowMs = 900000;
+  localKeys = false;
+
+  constructor(private readonly prefix: string) {}
+
+  init(options: { windowMs: number }): void {
+    this.windowMs = options.windowMs;
+  }
+
+  async increment(key: string): Promise<{ totalHits: number; resetTime: Date }> {
+    const client = redisClient.getClient();
+    const redisKey = `rate_limit:${this.prefix}:${key}`;
+    const totalHits = await client.incr(redisKey);
+    if (totalHits === 1) {
+      await client.pExpire(redisKey, this.windowMs);
+    }
+    const ttl = await client.pTTL(redisKey);
+    return {
+      totalHits,
+      resetTime: new Date(Date.now() + (ttl > 0 ? ttl : this.windowMs)),
+    };
+  }
+
+  async decrement(key: string): Promise<void> {
+    const client = redisClient.getClient();
+    const redisKey = `rate_limit:${this.prefix}:${key}`;
+    const value = await client.decr(redisKey);
+    if (value <= 0) await client.del(redisKey);
+  }
+
+  async resetKey(key: string): Promise<void> {
+    await redisClient.getClient().del(`rate_limit:${this.prefix}:${key}`);
+  }
+}
+
 /**
  * Auth Rate Limiter
  * For sensitive endpoints like login, register, password reset
  * Limit: 5 requests per 15 minutes
  */
 export const authLimiter = rateLimit({
+  store: new RedisRateLimitStore('auth') as any,
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000'), // 15 minutes
   max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '5'), // 5 requests
   message: {
@@ -36,6 +74,7 @@ export const authLimiter = rateLimit({
  * Limit: 100 requests per 15 minutes
  */
 export const generalLimiter = rateLimit({
+  store: new RedisRateLimitStore('general') as any,
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 100, // 100 requests per window
   message: {
@@ -53,6 +92,7 @@ export const generalLimiter = rateLimit({
  * Limit: 3 requests per 15 minutes
  */
 export const strictLimiter = rateLimit({
+  store: new RedisRateLimitStore('strict') as any,
   windowMs: 15 * 60 * 1000,
   max: 3,
   message: {
@@ -66,6 +106,7 @@ export const strictLimiter = rateLimit({
 
 /** OTP send/resend — 5 per 15 minutes per IP */
 export const otpLimiter = rateLimit({
+  store: new RedisRateLimitStore('otp') as any,
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000'),
   max: 5,
   message: {
@@ -79,6 +120,7 @@ export const otpLimiter = rateLimit({
 
 /** KYC document uploads — 10 per hour */
 export const kycUploadLimiter = rateLimit({
+  store: new RedisRateLimitStore('kyc_upload') as any,
   windowMs: 60 * 60 * 1000,
   max: 10,
   message: {
@@ -92,6 +134,7 @@ export const kycUploadLimiter = rateLimit({
 
 /** Withdrawals — 5 per hour */
 export const withdrawalLimiter = rateLimit({
+  store: new RedisRateLimitStore('withdrawal') as any,
   windowMs: 60 * 60 * 1000,
   max: 5,
   message: {
@@ -105,6 +148,7 @@ export const withdrawalLimiter = rateLimit({
 
 /** Support tickets / AI chat — 20 per 15 minutes */
 export const supportLimiter = rateLimit({
+  store: new RedisRateLimitStore('support') as any,
   windowMs: 15 * 60 * 1000,
   max: 20,
   message: {
@@ -122,6 +166,7 @@ export const supportLimiter = rateLimit({
  * shared general limit and block begs, auth, etc.
  */
 export const donationVerifyLimiter = rateLimit({
+  store: new RedisRateLimitStore('donation_verify') as any,
   windowMs: 5 * 60 * 1000, // 5 minutes
   max: 120, // ~24 polls/min — enough for one checkout without starving other routes
   message: {
@@ -135,6 +180,7 @@ export const donationVerifyLimiter = rateLimit({
 
 /** Reactions — 60 per 15 minutes */
 export const reactionLimiter = rateLimit({
+  store: new RedisRateLimitStore('reaction') as any,
   windowMs: 15 * 60 * 1000,
   max: 60,
   message: {

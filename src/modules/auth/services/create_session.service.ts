@@ -4,6 +4,7 @@ import prisma from '../../../config/database';
 import { TokenService } from './tokenService';
 import { CacheService } from './cacheService';
 import { IUser } from '../types/user.interface';
+import { hashRefreshToken } from '../../../utils/crypto.util';
 
 /**
  * Create DB session + JWT pair (same behavior as POST /api/auth/login).
@@ -33,7 +34,8 @@ export async function createSessionAndTokens(
       userId: user.id,
       userAgent,
       ipAddress,
-      refreshToken,
+      refreshToken: null,
+      refreshTokenHash: hashRefreshToken(refreshToken),
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     },
   });
@@ -54,7 +56,10 @@ export async function createSessionAndTokens(
 
   await prisma.session.update({
     where: { id: session.id },
-    data: { refreshToken: finalRefreshToken },
+    data: {
+      refreshToken: null,
+      refreshTokenHash: hashRefreshToken(finalRefreshToken),
+    },
   });
 
   await CacheService.setRefreshToken(session.id, finalRefreshToken);

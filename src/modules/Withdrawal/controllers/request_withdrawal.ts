@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { WithdrawalService } from '../services/withdrawal.service';
 import { IApiResponse } from '../../auth/types/user.interface';
 import logger from '../../../config/logger';
+import { maskAccountNumber } from '../../../utils/crypto.util';
 
 const sendResponse = <T = any>(
   res: Response,
@@ -52,7 +53,7 @@ export const requestWithdrawal = async (
             id: withdrawal.id,
             amount_to_receive: amountToReceive,
             bank_account: {
-              account_number: withdrawal.bankAccount.accountNumber,
+              account_number: maskAccountNumber(withdrawal.bankAccount.accountNumber),
               account_name: withdrawal.bankAccount.accountName,
               bank_name: withdrawal.bankAccount.bankName,
             },
@@ -74,7 +75,7 @@ export const requestWithdrawal = async (
             id: withdrawal.id,
             amount_to_receive: amountToReceive,
             bank_account: {
-              account_number: withdrawal.bankAccount.accountNumber,
+              account_number: maskAccountNumber(withdrawal.bankAccount.accountNumber),
               account_name: withdrawal.bankAccount.accountName,
               bank_name: withdrawal.bankAccount.bankName,
             },

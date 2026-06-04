@@ -9,6 +9,8 @@ const baseSchema = z.object({
   REDIS_URL: z.string().min(1, 'REDIS_URL is required'),
   JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 characters'),
   JWT_REFRESH_SECRET: z.string().min(32, 'JWT_REFRESH_SECRET must be at least 32 characters'),
+  REFRESH_TOKEN_PEPPER: z.string().optional(),
+  DATA_ENCRYPTION_KEY: z.string().optional(),
   FLW_SECRET_KEY: z.string().min(1, 'FLW_SECRET_KEY is required'),
   FLW_WEBHOOK_HASH: z.string().min(1, 'FLW_WEBHOOK_HASH is required'),
   BASE_URL: z.string().url().optional(),
@@ -50,6 +52,20 @@ const productionSchema = baseSchema.superRefine((data, ctx) => {
       code: 'custom',
       message: 'COOKIE_SECURE must be true in production',
       path: ['COOKIE_SECURE'],
+    });
+  }
+  if (!data.REFRESH_TOKEN_PEPPER || data.REFRESH_TOKEN_PEPPER.length < 32) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'REFRESH_TOKEN_PEPPER must be at least 32 characters in production',
+      path: ['REFRESH_TOKEN_PEPPER'],
+    });
+  }
+  if (!data.DATA_ENCRYPTION_KEY || data.DATA_ENCRYPTION_KEY.length < 32) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'DATA_ENCRYPTION_KEY must be at least 32 characters in production',
+      path: ['DATA_ENCRYPTION_KEY'],
     });
   }
   if (!data.SUPABASE_URL) {

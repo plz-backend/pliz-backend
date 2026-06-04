@@ -4,7 +4,11 @@ import { Request, Response } from 'express';
 import { UserService } from '../../services/user.service';
 import { SessionService } from '../../services/session.service';
 import { IUserResponse, IApiResponse } from '../../types/user.interface';
-import { getRefreshTokenFromRequest } from '../../utils/refresh_cookie';
+import {
+  getRefreshTokenFromRequest,
+  setRefreshTokenCookie,
+  verifyRefreshCookieCsrf,
+} from '../../utils/refresh_cookie';
 import logger from '../../../../config/logger';
 
 /**
@@ -39,6 +43,14 @@ export const refreshToken = async (
       return;
     }
 
+    if (!verifyRefreshCookieCsrf(req)) {
+      sendResponse(res, 403, {
+        success: false,
+        message: 'Invalid refresh request',
+      });
+      return;
+    }
+
     logger.info('Refresh token request', { ip: req.ip });
 
     const decoded = TokenService.verifyRefreshToken(token);
@@ -69,7 +81,14 @@ export const refreshToken = async (
     const session = await SessionService.findSessionByRefreshToken(token);
 
     if (!session) {
-      logger.warn('Session not found for refresh token', { userId });
+      logger.warn('Session not found for refresh token; possible token reuse', {
+        userId,
+        sessionId: decoded.sessionId,
+      });
+      if (decoded.sessionId) {
+        await SessionService.deactivateSession(decoded.sessionId);
+        await CacheService.deleteRefreshToken(decoded.sessionId);
+      }
       const response: IApiResponse = {
         success: false,
         message: 'Invalid session',
@@ -117,10 +136,19 @@ export const refreshToken = async (
       return;
     }
 
+    const newRefreshToken = TokenService.generateRefreshToken(
+      userId,
+      user.email,
+      user.role,
+      session.id
+    );
+    await SessionService.rotateRefreshToken(session.id, newRefreshToken);
+    await CacheService.setRefreshToken(session.id, newRefreshToken);
+
     // Generate new access token (with same session ID)
     const newAccessToken = TokenService.generateAccessToken(
       userId,
-      email,
+      user.email,
       user.role,
       session.id
     );
@@ -159,15 +187,18 @@ export const refreshToken = async (
 
     const response: IApiResponse<{
       accessToken: string;
+      refreshToken: string;
       user: IUserResponse;
     }> = {
       success: true,
       message: 'Token refreshed successfully',
       data: {
         accessToken: newAccessToken,
+        refreshToken: newRefreshToken,
         user: userResponse,
       },
     };
+    setRefreshTokenCookie(res, newRefreshToken);
     sendResponse(res, 200, response);
   } catch (error: any) {
     logger.error('Refresh token error', {

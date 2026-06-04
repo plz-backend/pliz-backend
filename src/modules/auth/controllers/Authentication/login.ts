@@ -9,6 +9,7 @@ import {
 } from '../../types/user.interface';
 import logger from '../../../../config/logger';
 import { toUserResponse } from '../../../admin/utils/admin-user-response';
+import { CacheService } from '../../services/cacheService';
 
 
 
@@ -31,7 +32,17 @@ const sendResponse = <T = any>(
 export const login = async (req: Request, res: Response): Promise<void> => {
   try {
     const { email, password } = req.body as ILoginRequest;
-    logger.info('Login attempt', { email, ip: req.ip });
+    const ip = req.ip || 'unknown';
+    logger.info('Login attempt', { email, ip });
+
+    if (await CacheService.isLoginLocked(email, ip)) {
+      logger.warn('Login blocked: too many failed attempts', { email, ip });
+      sendResponse(res, 429, {
+        success: false,
+        message: 'Too many failed login attempts. Please try again later.',
+      });
+      return;
+    }
 
     // ============================================
     // FIND USER
@@ -40,6 +51,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 
     if (!user) {
       logger.warn('Login failed: User not found', { email });
+      await CacheService.recordLoginFailure(email, ip);
       const response: IApiResponse = {
         success: false,
         message: 'Invalid email or password',
@@ -61,12 +73,20 @@ export const login = async (req: Request, res: Response): Promise<void> => {
         userId: user.id,
         email,
       });
+      await CacheService.recordLoginFailure(email, ip);
       const response: IApiResponse = {
         success: false,
         message: 'Invalid email or password',
       };
       sendResponse(res, 401, response);
       return;
+    }
+
+    await CacheService.clearLoginFailures(email, ip);
+
+    if (UserService.passwordNeedsRehash(user.passwordHash)) {
+      await UserService.updatePassword(user.id, password);
+      logger.info('Password hash upgraded after successful login', { userId: user.id });
     }
 
     // ============================================
