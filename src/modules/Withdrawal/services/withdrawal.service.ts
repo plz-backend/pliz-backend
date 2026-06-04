@@ -5,6 +5,7 @@ import { Decimal } from '@prisma/client/runtime/library';
 import logger from '../../../config/logger';
 import { WithdrawalEmailService } from './withdrawal_email.service';
 import { TransactionPinService } from '../../Security/services/transaction-pin.service';
+import { decryptText, maskAccountNumber } from '../../../utils/crypto.util';
 
 const COMPANY_FEE_RATE = 0.05;
 const VAT_RATE = 0.075;
@@ -53,6 +54,8 @@ interface IBegWithdrawalRelations {
   bankAccount: {
     id: string;
     accountNumber: string;
+    accountNumberEncrypted?: string | null;
+    accountNumberLast4?: string | null;
     accountName: string;
     bankName: string;
     bankCode: string;
@@ -86,6 +89,8 @@ interface IWithdrawalRequestRelations {
   bankAccount: {
     id: string;
     accountNumber: string;
+    accountNumberEncrypted?: string | null;
+    accountNumberLast4?: string | null;
     accountName: string;
     bankName: string;
     bankCode: string;
@@ -410,11 +415,18 @@ export class WithdrawalService {
       const amountToReceive = parseFloat(withdrawal.amountToReceive.toString());
 
       // ── FLUTTERWAVE TRANSFER ──────────────────
+      const transferAccountNumber =
+        decryptText(withdrawal.bankAccount.accountNumberEncrypted) ??
+        withdrawal.bankAccount.accountNumber;
+      const displayAccountNumber = withdrawal.bankAccount.accountNumberLast4
+        ? `******${withdrawal.bankAccount.accountNumberLast4}`
+        : maskAccountNumber(transferAccountNumber);
+
       const transferResponse = await axios.post(
         `${FLW_BASE_URL}/transfers`,
         {
           account_bank: withdrawal.bankAccount.bankCode,
-          account_number: withdrawal.bankAccount.accountNumber,
+          account_number: transferAccountNumber,
           amount: amountToReceive,        // ← Naira directly
           narration: `Plz withdrawal — ${begTitle}`,
           currency: 'NGN',
@@ -441,7 +453,7 @@ export class WithdrawalService {
           recipientName,
           amount: amountToReceive,
           bankName: withdrawal.bankAccount.bankName,
-          accountNumber: withdrawal.bankAccount.accountNumber,
+          accountNumber: displayAccountNumber,
           failureReason,
           begTitle,
           supportEmail: process.env.SUPPORT_EMAIL || 'support@plz.app',
@@ -473,7 +485,7 @@ export class WithdrawalService {
         totalFees: parseFloat(withdrawal.totalFees.toString()),
         amountToReceive,
         bankName: withdrawal.bankAccount.bankName,
-        accountNumber: withdrawal.bankAccount.accountNumber,
+        accountNumber: displayAccountNumber,
         accountName: withdrawal.bankAccount.accountName,
         transferReference: reference,
         begTitle,
@@ -533,6 +545,7 @@ export class WithdrawalService {
             bankAccount: {
               select: {
                 accountNumber: true,
+                accountNumberLast4: true,
                 accountName: true,
                 bankName: true,
               },
@@ -560,7 +573,9 @@ export class WithdrawalService {
             category: w.beg.category,
           },
           bank_account: {
-            account_number: w.bankAccount.accountNumber,
+            account_number: w.bankAccount.accountNumberLast4
+              ? `******${w.bankAccount.accountNumberLast4}`
+              : maskAccountNumber(w.bankAccount.accountNumber),
             account_name: w.bankAccount.accountName,
             bank_name: w.bankAccount.bankName,
           },

@@ -11,6 +11,14 @@ const SENSITIVE_KEYS = [
   'phoneotp',
   'api_key',
   'apikey',
+  'authorizationcode',
+  'accountnumber',
+  'nin',
+  'bvn',
+  'passportnumber',
+  'providerresponse',
+  'requestbody',
+  'body',
 ];
 
 function sanitizeValue(obj: unknown): unknown {

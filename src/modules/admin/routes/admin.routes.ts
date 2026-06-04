@@ -6,6 +6,7 @@ import {
   requirePermission,
 } from '../middleware/requirePermission';
 import { AdminPermission } from '../permissions';
+import { generalLimiter } from '../../auth/middleware/auth/rateLimiter';
 
 import { getUsers } from '../controllers/users/get_users';
 import { suspendUser } from '../controllers/users/suspend_user';
@@ -72,7 +73,7 @@ import { updateTeamMember } from '../controllers/team/update-team.controller';
 
 const router = Router();
 
-router.use(authenticate, requireAdmin, requirePasswordChanged);
+router.use(authenticate, requireAdmin, requirePasswordChanged, generalLimiter);
 
 const p = requirePermission;
 

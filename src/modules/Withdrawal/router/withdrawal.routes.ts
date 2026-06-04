@@ -36,7 +36,7 @@ router.post('/resolve-account', authenticate, withdrawalLimiter, resolveBankAcco
  * @desc    Add a new bank account
  * @access  Private
  */
-router.post('/bank-accounts', authenticate, checkAccountStatus, addBankAccount);
+router.post('/bank-accounts', authenticate, checkAccountStatus, withdrawalLimiter, addBankAccount);
 
 /**
  * @route   GET /api/withdrawals/bank-accounts
@@ -50,14 +50,14 @@ router.get('/bank-accounts', authenticate, getBankAccounts);
  * @desc    Set bank account as default
  * @access  Private
  */
-router.put('/bank-accounts/:id', authenticate, updateBankAccount);
+router.put('/bank-accounts/:id', authenticate, withdrawalLimiter, updateBankAccount);
 
 /**
  * @route   DELETE /api/withdrawals/bank-accounts/:id
  * @desc    Delete a bank account
  * @access  Private
  */
-router.delete('/bank-accounts/:id', authenticate, deleteBankAccount);
+router.delete('/bank-accounts/:id', authenticate, withdrawalLimiter, deleteBankAccount);
 
 // ============================================
 // WITHDRAWAL MANAGEMENT

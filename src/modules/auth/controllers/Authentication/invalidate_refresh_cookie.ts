@@ -5,6 +5,7 @@ import { TokenService } from '../../services/tokenService';
 import {
   clearRefreshTokenCookie,
   getRefreshTokenFromRequest,
+  verifyRefreshCookieCsrf,
 } from '../../utils/refresh_cookie';
 import { IApiResponse } from '../../types/user.interface';
 import logger from '../../../../config/logger';
@@ -21,6 +22,11 @@ export const invalidateRefreshCookie = async (
   try {
     const token = getRefreshTokenFromRequest(req);
     clearRefreshTokenCookie(res);
+
+    if (!verifyRefreshCookieCsrf(req)) {
+      res.status(403).json({ success: false, message: 'Invalid refresh request' } satisfies IApiResponse);
+      return;
+    }
 
     if (!token) {
       const response: IApiResponse = {

@@ -190,6 +190,7 @@ model Session {
   id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   userId       String   @map("user_id") @db.Uuid
   refreshToken String?   @map("refresh_token") @db.Text
+  refreshTokenHash String? @map("refresh_token_hash") @db.VarChar(64)
   active       Boolean  @default(true)
   lastActive   DateTime @default(now()) @map("last_active") @db.Timestamp(6)
   expiresAt    DateTime @map("expires_at") @db.Timestamp(6)
@@ -207,6 +208,7 @@ model Session {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, active])
+  @@index([refreshTokenHash])
   @@index([expiresAt])
   @@map("session_manager")
 }
@@ -622,6 +624,7 @@ model SavedCard {
   id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   userId            String   @map("user_id") @db.Uuid
   authorizationCode String   @unique @map("authorization_code") @db.VarChar(255)
+  authorizationCodeHash String? @unique @map("authorization_code_hash") @db.VarChar(64)
   cardType          String   @map("card_type") @db.VarChar(20) // visa, mastercard
   last4             String   @db.VarChar(4)
   expMonth          String   @map("exp_month") @db.VarChar(2)
@@ -642,6 +645,9 @@ model BankAccount {
   id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   userId        String    @map("user_id") @db.Uuid
   accountNumber String    @map("account_number") @db.VarChar(10)
+  accountNumberEncrypted String? @map("account_number_encrypted") @db.Text
+  accountNumberHash String? @map("account_number_hash") @db.VarChar(64)
+  accountNumberLast4 String? @map("account_number_last4") @db.VarChar(4)
   accountName   String    @map("account_name") @db.VarChar(255)
   bankCode      String    @map("bank_code") @db.VarChar(10)
   bankName      String    @map("bank_name") @db.VarChar(100)
@@ -654,6 +660,7 @@ model BankAccount {
   withdrawals   Withdrawal[]
 
   @@unique([userId, accountNumber])
+  @@unique([userId, accountNumberHash])
   @@index([userId])
   @@index([isDefault])
   @@map("bank_accounts")

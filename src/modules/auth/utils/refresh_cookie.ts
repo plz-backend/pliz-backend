@@ -1,7 +1,9 @@
 import { Request, Response } from 'express';
+import crypto from 'crypto';
 
 /** HttpOnly cookie name for web refresh token (not readable by JS). */
 export const REFRESH_TOKEN_COOKIE_NAME = 'pliz_refresh';
+export const CSRF_COOKIE_NAME = 'pliz_csrf';
 
 /**
  * Body (JSON) or httpOnly cookie; cookie-parser may miss some proxies — also parse raw Cookie header.
@@ -38,6 +40,14 @@ export function getRefreshTokenFromRequest(req: Request): string {
   return '';
 }
 
+export function hasBodyRefreshToken(req: Request): boolean {
+  return typeof req.body?.refreshToken === 'string' && req.body.refreshToken.trim().length > 0;
+}
+
+export function hasCookieRefreshToken(req: Request): boolean {
+  return Boolean(req.cookies?.[REFRESH_TOKEN_COOKIE_NAME] || req.headers.cookie?.includes(`${REFRESH_TOKEN_COOKIE_NAME}=`));
+}
+
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 function cookieSecureFlag(): boolean {
@@ -52,8 +62,16 @@ function cookieSecureFlag(): boolean {
  */
 export function setRefreshTokenCookie(res: Response, refreshToken: string): void {
   const secure = cookieSecureFlag();
+  const csrfToken = crypto.randomBytes(32).toString('hex');
   res.cookie(REFRESH_TOKEN_COOKIE_NAME, refreshToken, {
     httpOnly: true,
+    secure,
+    sameSite: secure ? 'none' : 'lax',
+    maxAge: MAX_AGE_MS,
+    path: '/',
+  });
+  res.cookie(CSRF_COOKIE_NAME, csrfToken, {
+    httpOnly: false,
     secure,
     sameSite: secure ? 'none' : 'lax',
     maxAge: MAX_AGE_MS,
@@ -69,4 +87,18 @@ export function clearRefreshTokenCookie(res: Response): void {
     sameSite: secure ? 'none' : 'lax',
     path: '/',
   });
+  res.clearCookie(CSRF_COOKIE_NAME, {
+    httpOnly: false,
+    secure,
+    sameSite: secure ? 'none' : 'lax',
+    path: '/',
+  });
+}
+
+export function verifyRefreshCookieCsrf(req: Request): boolean {
+  if (!hasCookieRefreshToken(req)) return true;
+  if (hasBodyRefreshToken(req)) return false;
+  const cookieToken = req.cookies?.[CSRF_COOKIE_NAME];
+  const headerToken = req.header('x-csrf-token');
+  return Boolean(cookieToken && headerToken && cookieToken === headerToken);
 }

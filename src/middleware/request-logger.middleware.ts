@@ -4,6 +4,15 @@ import { randomUUID } from 'crypto';
 import logger from '../config/logger';
 import { runWithRequestContext } from '../config/request-context';
 
+const SENSITIVE_PATHS = [
+  '/auth',
+  '/kyc',
+  '/withdrawals',
+  '/payment-methods',
+  '/webhooks',
+  '/admin',
+];
+
 declare global {
   namespace Express {
     interface Request {
@@ -38,7 +47,7 @@ export function requestLoggerMiddleware(req: Request, res: Response, next: NextF
     logger.info('http.request.start', {
       method: req.method,
       path: req.path,
-      query: req.query,
+      query: SENSITIVE_PATHS.some((path) => req.path.includes(path)) ? '[REDACTED]' : req.query,
       ip: req.ip,
     });
 

@@ -3,7 +3,7 @@
  */
 export const SecurityConfig = {
   bcrypt: {
-    saltRounds: 10,
+    saltRounds: 12,
   },
   jwt: {
     accessTokenExpiry: process.env.JWT_ACCESS_EXPIRY || '15m',

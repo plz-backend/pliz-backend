@@ -1,6 +1,7 @@
 import prisma from '../../../config/database';
 import axios from 'axios';
 import logger from '../../../config/logger';
+import { decryptText, encryptText, stableSecretHash } from '../../../utils/crypto.util';
 
 const FLW_BASE_URL = 'https://api.flutterwave.com/v3';
 
@@ -35,7 +36,7 @@ export class PaymentMethodService {
       }
 
       const existing = await prisma.savedCard.findUnique({
-        where: { authorizationCode: card.token },
+        where: { authorizationCodeHash: stableSecretHash(card.token) },
       });
 
       if (existing) {
@@ -50,7 +51,8 @@ export class PaymentMethodService {
       const savedCard = await prisma.savedCard.create({
         data: {
           userId,
-          authorizationCode: card.token,
+          authorizationCode: encryptText(card.token) ?? card.token,
+          authorizationCodeHash: stableSecretHash(card.token),
           cardType: card.type || 'card',
           last4: card.last_4digits,
           expMonth: card.expiry?.split('/')[0] || '',
@@ -197,7 +199,7 @@ export class PaymentMethodService {
       const response = await axios.post(
         `${FLW_BASE_URL}/tokenized-charges`,
         {
-          token: card.authorizationCode,
+          token: decryptText(card.authorizationCode) ?? card.authorizationCode,
           currency: 'NGN',
           country: 'NG',
           amount: data.amount,

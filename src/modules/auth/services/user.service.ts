@@ -35,6 +35,12 @@ export class UserService {
     }
   }
 
+  static passwordNeedsRehash(hashedPassword: string): boolean {
+    const match = hashedPassword.match(/^\$2[aby]\$(\d{2})\$/);
+    if (!match) return true;
+    return Number(match[1]) < SecurityConfig.bcrypt.saltRounds;
+  }
+
   /**
    * Create a new user
    * UPDATED: Now supports optional role parameter (defaults to USER)
