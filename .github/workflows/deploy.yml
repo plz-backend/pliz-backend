@@ -57,6 +57,7 @@ jobs:
           password: ${{ steps.auth.outputs.access_token }}
 
       - name: Build and push image
+        id: build
         run: |
           IMAGE="$REGION-docker.pkg.dev/$PROJECT_ID/$GAR_REPOSITORY/$IMAGE_NAME"
           docker build \
@@ -67,13 +68,23 @@ jobs:
             .
           docker push "$IMAGE:$IMAGE_TAG"
           docker push "$IMAGE:${{ github.sha }}"
+          IMAGE_DIGEST="$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE:$IMAGE_TAG")"
+          echo "image_digest=$IMAGE_DIGEST" >> "$GITHUB_OUTPUT"
+
+      - name: Scan staging image
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ steps.build.outputs.image_digest }}
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          ignore-unfixed: true
 
       - name: Deploy to Cloud Run
         uses: google-github-actions/deploy-cloudrun@v2
         with:
           service: ${{ env.SERVICE_NAME }}
           region: ${{ env.REGION }}
-          image: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+          image: ${{ steps.build.outputs.image_digest }}
           flags: >-
             --service-account=${{ env.RUNTIME_SERVICE_ACCOUNT }}
             --port=8080
@@ -104,6 +115,8 @@ jobs:
             --set-secrets=FLW_WEBHOOK_HASH=FLW_WEBHOOK_HASH:latest
             --set-secrets=FLW_PUBLIC_KEY=FLW_PUBLIC_KEY:latest
             --set-secrets=JWT_SECRET=JWT_SECRET:latest
+            --set-secrets=REFRESH_TOKEN_PEPPER=REFRESH_TOKEN_PEPPER:latest
+            --set-secrets=DATA_ENCRYPTION_KEY=DATA_ENCRYPTION_KEY:latest
             --set-secrets=JWT_ACCESS_EXPIRATION=JWT_ACCESS_EXPIRATION:latest
             --set-secrets=JWT_REFRESH_EXPIRATION=JWT_REFRESH_EXPIRATION:latest
             --set-secrets=PREMBLY_API_KEY=PREMBLY_API_KEY:latest
@@ -177,6 +190,15 @@ jobs:
           DIRECT_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
         run: npm ci
 
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Typecheck production release
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+          DIRECT_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+        run: npx tsc --noEmit
+
       - name: Run production database migrations
         run: |
           DATABASE_URL="$(gcloud secrets versions access latest --secret=DATABASE_URL --impersonate-service-account="$RUNTIME_SERVICE_ACCOUNT")"
@@ -185,6 +207,7 @@ jobs:
           echo "::add-mask::$DATABASE_URL"
           echo "::add-mask::$DIRECT_URL"
 
+          DATABASE_URL="$DATABASE_URL" DIRECT_URL="$DIRECT_URL" npx prisma migrate status
           DATABASE_URL="$DATABASE_URL" DIRECT_URL="$DIRECT_URL" npx prisma migrate deploy
 
       - uses: docker/login-action@v3
@@ -194,6 +217,7 @@ jobs:
           password: ${{ steps.auth.outputs.access_token }}
 
       - name: Build and push image
+        id: build
         run: |
           IMAGE="$REGION-docker.pkg.dev/$PROJECT_ID/$GAR_REPOSITORY/$IMAGE_NAME"
           docker build \
@@ -204,13 +228,23 @@ jobs:
             .
           docker push "$IMAGE:${{ env.RELEASE_TAG }}"
           docker push "$IMAGE:${{ steps.meta.outputs.git_sha }}"
+          IMAGE_DIGEST="$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE:${{ env.RELEASE_TAG }}")"
+          echo "image_digest=$IMAGE_DIGEST" >> "$GITHUB_OUTPUT"
+
+      - name: Scan production image
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ steps.build.outputs.image_digest }}
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          ignore-unfixed: true
 
       - name: Deploy to Cloud Run
         uses: google-github-actions/deploy-cloudrun@v2
         with:
           service: ${{ env.SERVICE_NAME }}
           region: ${{ env.REGION }}
-          image: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/${{ env.IMAGE_NAME }}:${{ env.RELEASE_TAG }}
+          image: ${{ steps.build.outputs.image_digest }}
           flags: >-
             --service-account=${{ env.RUNTIME_SERVICE_ACCOUNT }}
             --port=8080
@@ -241,6 +275,8 @@ jobs:
             --set-secrets=FLW_WEBHOOK_HASH=FLW_WEBHOOK_HASH:latest
             --set-secrets=FLW_PUBLIC_KEY=FLW_PUBLIC_KEY:latest
             --set-secrets=JWT_SECRET=JWT_SECRET:latest
+            --set-secrets=REFRESH_TOKEN_PEPPER=REFRESH_TOKEN_PEPPER:latest
+            --set-secrets=DATA_ENCRYPTION_KEY=DATA_ENCRYPTION_KEY:latest
             --set-secrets=JWT_ACCESS_EXPIRATION=JWT_ACCESS_EXPIRATION:latest
             --set-secrets=JWT_REFRESH_EXPIRATION=JWT_REFRESH_EXPIRATION:latest
             --set-secrets=PREMBLY_API_KEY=PREMBLY_API_KEY:latest

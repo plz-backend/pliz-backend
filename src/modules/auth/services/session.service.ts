@@ -4,6 +4,7 @@ import prisma from '../../../config/database';
 import { IDeviceInfo, ISessionResponse, ISession } from '../types/user.interface';
 import logger from '../../../config/logger';
 import { SecurityConfig } from '../../../config/security';
+import { hashRefreshToken } from '../../../utils/crypto.util';
 
 /**
  * Session Service
@@ -106,7 +107,8 @@ export class SessionService {
 
       // Add refreshToken if provided (optional)
       if (refreshToken) {
-        sessionData.refreshToken = refreshToken;
+        sessionData.refreshToken = null;
+        sessionData.refreshTokenHash = hashRefreshToken(refreshToken);
       }
 
       const session = await prisma.session.create({
@@ -238,7 +240,7 @@ static async getUserSessions(
     try {
       const session = await prisma.session.findFirst({
         where: {
-          refreshToken,
+          refreshTokenHash: hashRefreshToken(refreshToken),
           active: true,
         },
       });
@@ -259,6 +261,27 @@ static async getUserSessions(
     refreshToken: string
   ): Promise<ISession | null> {
     return this.findSessionByRefreshToken(refreshToken);
+  }
+
+  static async rotateRefreshToken(
+    sessionId: string,
+    refreshToken: string
+  ): Promise<void> {
+    try {
+      await prisma.session.update({
+        where: { id: sessionId },
+        data: {
+          refreshToken: null,
+          refreshTokenHash: hashRefreshToken(refreshToken),
+          lastActive: new Date(),
+          expiresAt: new Date(Date.now() + (SecurityConfig.session?.expiryDays || 7) * 24 * 60 * 60 * 1000),
+        },
+      });
+      logger.debug('Refresh token rotated', { sessionId });
+    } catch (error) {
+      logger.error('Failed to rotate refresh token', { error, sessionId });
+      throw error;
+    }
   }
 
   /**

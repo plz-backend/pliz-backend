@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import prisma from '../../../../config/database';
 import { Decimal } from '@prisma/client/runtime/library';
+import { maskAccountNumber } from '../../../../utils/crypto.util';
 import { IApiResponse } from '../../../auth/types/user.interface';
 import logger from '../../../../config/logger';
 
@@ -89,6 +90,7 @@ export const getAllWithdrawals = async (req: Request, res: Response): Promise<vo
           bankAccount: {
             select: {
               accountNumber: true,
+              accountNumberLast4: true,
               accountName: true,
               bankName: true,
             },
@@ -121,7 +123,9 @@ export const getAllWithdrawals = async (req: Request, res: Response): Promise<vo
           total_fees: parseFloat(w.totalFees.toString()),
           amount_to_receive: parseFloat(w.amountToReceive.toString()),
           bank_account: {
-            account_number: w.bankAccount.accountNumber,
+            account_number: (w.bankAccount as any).accountNumberLast4
+              ? `******${(w.bankAccount as any).accountNumberLast4}`
+              : maskAccountNumber(w.bankAccount.accountNumber),
             account_name: w.bankAccount.accountName,
             bank_name: w.bankAccount.bankName,
           },

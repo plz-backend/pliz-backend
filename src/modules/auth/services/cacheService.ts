@@ -7,6 +7,27 @@ import logger from '../../../config/logger';
  * Handles Redis operations for authentication
  */
 export class CacheService {
+  static async recordLoginFailure(email: string, ip: string): Promise<number> {
+    const client = redisClient.getClient();
+    const key = `login_fail:${email.toLowerCase()}:${ip}`;
+    const attempts = await client.incr(key);
+    if (attempts === 1) {
+      await client.expire(key, 15 * 60);
+    }
+    return attempts;
+  }
+
+  static async clearLoginFailures(email: string, ip: string): Promise<void> {
+    const client = redisClient.getClient();
+    await client.del(`login_fail:${email.toLowerCase()}:${ip}`);
+  }
+
+  static async isLoginLocked(email: string, ip: string): Promise<boolean> {
+    const client = redisClient.getClient();
+    const attempts = Number(await client.get(`login_fail:${email.toLowerCase()}:${ip}`) ?? '0');
+    return attempts >= 5;
+  }
+
   // ============================================
   // TOKEN BLACKLIST
   // ============================================
@@ -43,8 +64,8 @@ export class CacheService {
       return result !== null;
     } catch (error) {
       logger.error('Failed to check token blacklist', { error });
-      // If Redis fails, allow the request (fail open for availability)
-      return false;
+      // Auth-critical check: deny when Redis cannot verify revocation state.
+      return true;
     }
   }
 

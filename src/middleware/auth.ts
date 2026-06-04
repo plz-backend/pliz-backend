@@ -3,7 +3,12 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { IJWTPayload } from '../modules/auth/types/user.interface'; // Import centralized type
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
+const JWT_SECRET = process.env.JWT_SECRET;
+
+function requireJwtSecret(): string {
+  if (!JWT_SECRET) throw new Error('JWT_SECRET is not configured');
+  return JWT_SECRET;
+}
 
 //  REMOVE THIS DUPLICATE DECLARATION
 // declare global {
@@ -36,7 +41,7 @@ export const authenticateRequired = (
       });
     }
     
-    const decoded = jwt.verify(token, JWT_SECRET) as IJWTPayload; // ✅ Use IJWTPayload
+    const decoded = jwt.verify(token, requireJwtSecret()) as IJWTPayload; // ✅ Use IJWTPayload
     
     // Assign the full decoded payload
     req.user = decoded;
@@ -66,7 +71,7 @@ export const authenticateOptional = (
       return next(); // No token, continue as anonymous
     }
     
-    const decoded = jwt.verify(token, JWT_SECRET) as IJWTPayload; // Use IJWTPayload
+    const decoded = jwt.verify(token, requireJwtSecret()) as IJWTPayload; // Use IJWTPayload
     
     // Assign the full decoded payload
     req.user = decoded;

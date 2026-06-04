@@ -5,6 +5,7 @@ import { AdminService } from '../../services/admin.service';
 import { WithdrawalEmailService } from '../../../Withdrawal/services/withdrawal_email.service';
 import { IApiResponse } from '../../../auth/types/user.interface';
 import logger from '../../../../config/logger';
+import { maskAccountNumber } from '../../../../utils/crypto.util';
 
 const sendResponse = <T = any>(
   res: Response,
@@ -49,6 +50,7 @@ interface IWithdrawalRejectRelations {
   };
   bankAccount: {
     accountNumber: string;
+    accountNumberLast4: string | null;
     accountName: string;
     bankName: string;
   };
@@ -98,6 +100,7 @@ export const rejectWithdrawal = async (
         bankAccount: {
           select: {
             accountNumber: true,
+            accountNumberLast4: true,
             accountName: true,
             bankName: true,
           },
@@ -127,7 +130,9 @@ export const rejectWithdrawal = async (
       recipientName,
       amount: Number(withdrawal.amountToReceive),
       bankName: withdrawal.bankAccount.bankName,
-      accountNumber: withdrawal.bankAccount.accountNumber,
+      accountNumber: withdrawal.bankAccount.accountNumberLast4
+        ? `******${withdrawal.bankAccount.accountNumberLast4}`
+        : maskAccountNumber(withdrawal.bankAccount.accountNumber),
       failureReason: `Your withdrawal was rejected by our team. Reason: ${reason}`,
       begTitle,
       supportEmail: process.env.SUPPORT_EMAIL || 'support@pliz.app',

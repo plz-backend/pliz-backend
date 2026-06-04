@@ -114,6 +114,19 @@ export const createApp = (): Express => {
   // ROOT ENDPOINT
   // ============================================
   app.get('/', (req: Request, res: Response) => {
+    if (isProduction()) {
+      res.json({
+        success: true,
+        message: 'Plz API Server',
+        data: {
+          version: getAppVersion(),
+          git_sha: getGitSha(),
+          status: 'running',
+        },
+      } satisfies IApiResponse);
+      return;
+    }
+
     const response: IApiResponse = {
       success: true,
       message: 'Plz API Server',
@@ -157,6 +170,18 @@ export const createApp = (): Express => {
   app.get('/health', async (_req: Request, res: Response) => {
     const health = await runHealthChecks();
     const httpStatus = health.status === 'unhealthy' ? 503 : 200;
+
+    if (isProduction()) {
+      res.status(httpStatus).json({
+        success: health.status !== 'unhealthy',
+        message: health.status,
+        data: {
+          status: health.status,
+          timestamp: health.timestamp,
+        },
+      });
+      return;
+    }
 
     res.status(httpStatus).json({
       success: health.status !== 'unhealthy',
