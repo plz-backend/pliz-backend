@@ -111,19 +111,23 @@ export const authenticate = async (
         role: true,
         isSuspended: true,
         isTeamDisabled: true,
+        isDeleted: true
       },
     });
 
-    if (!user || user.isSuspended || user.isTeamDisabled) {
-      logger.warn('Authentication failed: User disabled or missing', {
-        userId: decoded.userId,
-        path: req.path,
-      });
-      res.status(403).json({
-        success: false,
-        message: 'Account access is disabled.',
-      } satisfies IApiResponse);
-      return;
+    if (!user || user.isSuspended || user.isTeamDisabled || user.isDeleted) {
+    logger.warn('Authentication failed: User disabled, deleted or missing', {
+      userId: decoded.userId,
+      path: req.path,
+    });
+    res.status(403).json({
+      success: false,
+      message: user?.isDeleted
+        ? 'This account has been deleted. Contact support@plz.ng if this is a mistake.'
+        : 'Account access is disabled.',
+      code: user?.isDeleted ? 'ACCOUNT_DELETED' : 'ACCOUNT_DISABLED',
+    } satisfies IApiResponse);
+    return;
     }
 
     req.user = {

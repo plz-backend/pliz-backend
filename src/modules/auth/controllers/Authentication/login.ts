@@ -121,6 +121,22 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
+    // ============================================
+    // CHECK IF ACCOUNT IS DELETED       
+    // ============================================
+    if (user.isDeleted) {
+      logger.warn('Login failed: Account deleted', {
+        userId: user.id,
+        email,
+      });
+      sendResponse(res, 403, {
+        success: false,
+        message: 'This account has been deleted. Contact support@plz.ng if this is a mistake.',
+        code: 'ACCOUNT_DELETED',
+      });
+      return;
+    }
+
     if (
       (user.role === 'admin' || user.role === 'superadmin') &&
       user.isTeamDisabled

@@ -18,6 +18,7 @@ import { createAdminUser } from '../controllers/Authentication/create_admin_user
 import { acceptAdminInvite } from '../controllers/Authentication/accept_admin_invite';
 import { googleLogin, appleLogin } from '../controllers/Authentication/oauth.controller';
 import { googleLoginValidation, appleLoginValidation } from '../middleware/auth/oauth.validation';
+import { deleteAccount } from '../controllers/Authentication/delete_account';
 
 
 // Middleware
@@ -217,6 +218,9 @@ router.post(
   validateRequest,
   changePassword
 );
+
+// DELETE /api/auth/account
+router.delete('/account', authenticate, deleteAccount);
 
 // ============================================
 // OAUTH ROUTES (PUBLIC)
