@@ -5,6 +5,8 @@ import { PaymentMethodService } from '../../Payment/services/payment_method.serv
 import { trustEngine } from '../../../services/trust-engine';
 import { IApiResponse } from '../../auth/types/user.interface';
 import logger from '../../../config/logger';
+import { SubaccountService } from '../../Payment/services/subaccount.service';
+
 
 const sendResponse = <T = any>(
   res: Response,
@@ -211,6 +213,13 @@ export const initializeDonation = async (
       return;
     }
 
+    // ── GET BENEFICIARY SUBACCOUNT ─────────────
+// Flutterwave will auto-split:
+// 7.525% → Plz | 92.475% → beneficiary
+const subaccountId = await SubaccountService.getSubaccountForUser(
+  beg.userId
+);
+
     // ============================================
     // FLUTTERWAVE CHECKOUT
     // ============================================
@@ -222,6 +231,7 @@ export const initializeDonation = async (
       donorId,
       isAnonymous: effectiveIsAnonymous,
       redirectUrl: checkoutRedirectUrl,
+      subaccountId,
     });
 
     if (!payment.success) {

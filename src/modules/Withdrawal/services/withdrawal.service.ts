@@ -7,8 +7,10 @@ import { WithdrawalEmailService } from './withdrawal_email.service';
 import { TransactionPinService } from '../../Security/services/transaction-pin.service';
 import { decryptText, maskAccountNumber } from '../../../utils/crypto.util';
 
-const COMPANY_FEE_RATE = 0.05;
-const VAT_RATE = 0.075;
+// ── FEE RATES ─────────────────────────────
+const COMPANY_FEE_RATE = 0.07;    // ← 7% (was 5%)
+const VAT_RATE = 0.075;           // 7.5% of fee
+// Total: 7% + (7% × 7.5%) = 7.525%
 
 const FLW_BASE_URL = 'https://api.flutterwave.com/v3';
 
@@ -106,33 +108,43 @@ interface IWithdrawalRequestRelations {
 
 export class WithdrawalService {
 
-  // ============================================
-  // IS BEG WITHDRAWABLE
-  // ============================================
-  static isBegWithdrawable(beg: {
-    status: string;
-    expiresAt: Date;
-    amountRaised: Decimal | number | string;
-  }): { allowed: boolean; reason?: string } {
-    const amountRaised = parseFloat(beg.amountRaised.toString());
-    if (!Number.isFinite(amountRaised) || amountRaised <= 0) {
-      return { allowed: false, reason: 'No donations to withdraw for this request' };
-    }
-    if (['cancelled', 'rejected', 'flagged'].includes(beg.status)) {
-      return { allowed: false, reason: 'This request is not eligible for withdrawal' };
-    }
-    if (beg.status === 'funded') return { allowed: true };
+  /// ============================================
+// IS BEG WITHDRAWABLE
+// User can withdraw at ANY time as long as
+// there are donations. No need to wait for
+// funded or expired.
+// ============================================
+static isBegWithdrawable(beg: {
+  status: string;
+  expiresAt: Date;
+  amountRaised: Decimal | number | string;
+}): { allowed: boolean; reason?: string } {
+  const amountRaised = parseFloat(beg.amountRaised.toString());
 
-    const periodEnded =
-      beg.status === 'expired' || beg.expiresAt.getTime() <= Date.now();
-
-    if (periodEnded) return { allowed: true };
-
+  if (!Number.isFinite(amountRaised) || amountRaised <= 0) {
     return {
       allowed: false,
-      reason: 'Withdrawals are available once your request is fully funded or after it expires',
+      reason: 'No donations to withdraw yet. Wait until you receive at least one donation.',
     };
   }
+
+  if (['cancelled', 'rejected', 'flagged'].includes(beg.status)) {
+    return {
+      allowed: false,
+      reason: 'This request is not eligible for withdrawal.',
+    };
+  }
+
+  if (beg.status === 'withdrawn') {
+    return {
+      allowed: false,
+      reason: 'You have already withdrawn funds from this request.',
+    };
+  }
+
+  // ← Allow withdrawal at any time
+  return { allowed: true };
+}
 
   // ============================================
   // CALCULATE FEES
@@ -224,13 +236,6 @@ export class WithdrawalService {
 
       const withdrawable = this.isBegWithdrawable(beg);
       if (!withdrawable.allowed) throw new Error(withdrawable.reason);
-
-      if (beg.status === 'active' && beg.expiresAt.getTime() <= Date.now()) {
-        await prisma.beg.update({
-          where: { id: begId },
-          data: { status: 'expired' },
-        });
-      }
 
       const existingWithdrawal = await prisma.withdrawal.findFirst({
         where: {
@@ -474,7 +479,7 @@ export class WithdrawalService {
 
       await prisma.beg.update({
         where: { id: withdrawal.begId },
-        data: { isWithdrawn: true, withdrawnAt: new Date() },
+        data: { isWithdrawn: true, withdrawnAt: new Date(), status: 'funded' },
       });
 
       await WithdrawalEmailService.sendSuccessEmail(withdrawal.user.email, {

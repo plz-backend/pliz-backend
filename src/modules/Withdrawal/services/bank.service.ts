@@ -6,6 +6,8 @@ import {
   maskAccountNumber,
   stableSecretHash,
 } from '../../../utils/crypto.util';
+import { SubaccountService } from '../../Payment/services/subaccount.service';
+
 
 interface NigerianBank {
   name: string;
@@ -107,72 +109,80 @@ export class BankService {
   // ============================================
   // ADD BANK ACCOUNT
   // ============================================
-  static async addBankAccount(
-    userId: string,
-    accountNumber: string,
-    bankCode: string
-  ): Promise<any> {
-    try {
-      const verified = await this.verifyBankAccount(accountNumber, bankCode);
-      const accountHash = stableSecretHash(verified.accountNumber);
-      const banks = await this.getNigerianBanks();
-      const bank = banks.find((b) => b.code === bankCode);
 
-      if (!bank) throw new Error('Invalid bank code');
 
-      const existing = await prisma.bankAccount.findFirst({
-        where: {
-          userId,
-          OR: [
-            { accountNumberHash: accountHash },
-            { accountNumber: verified.accountNumber },
-          ],
-        },
-      });
+static async addBankAccount(
+  userId: string,
+  accountNumber: string,
+  bankCode: string
+): Promise<any> {
+  try {
+    const verified = await this.verifyBankAccount(accountNumber, bankCode);
+    const banks = await this.getNigerianBanks();
+    const bank = banks.find((b) => b.code === bankCode);
 
-      if (existing) {
-        logger.info('Bank account already on file — returning existing', {
-          userId,
-          accountNumber: existing.accountNumberLast4
-            ? `******${existing.accountNumberLast4}`
-            : maskAccountNumber(existing.accountNumber),
-        });
-        return existing;
-      }
+    if (!bank) throw new Error('Invalid bank code');
 
-      const hasDefault = await prisma.bankAccount.findFirst({
-        where: { userId, isDefault: true },
-      });
+    const existing = await prisma.bankAccount.findFirst({
+      where: { userId, accountNumber },
+    });
+    if (existing) throw new Error('Bank account already added');
 
-      const bankAccount = await prisma.bankAccount.create({
-        data: {
-          userId,
-          accountNumber: maskAccountNumber(verified.accountNumber),
-          accountNumberEncrypted: encryptText(verified.accountNumber),
-          accountNumberHash: accountHash,
-          accountNumberLast4: verified.accountNumber.slice(-4),
-          accountName: verified.accountName,
-          bankCode: verified.bankCode,
-          bankName: bank.name,
-          isVerified: true,
-          isDefault: !hasDefault,
-        },
-      });
+    const hasDefault = await prisma.bankAccount.findFirst({
+      where: { userId, isDefault: true },
+    });
 
-      logger.info('Bank account added', {
+    // Get user email + phone for subaccount
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        email: true,
+        profile: { select: { phoneNumber: true } },
+      },
+    });
+
+    // ── CREATE FLUTTERWAVE SUBACCOUNT ─────────
+    const flwSubaccountId = await SubaccountService.createSubaccount({
+      userId,
+      accountNumber: verified.accountNumber,
+      bankCode: verified.bankCode,
+      accountName: verified.accountName,
+      email: user?.email || '',
+      phoneNumber: user?.profile?.phoneNumber || '',
+    });
+
+    if (!flwSubaccountId) {
+      logger.warn('Subaccount creation failed — bank account saved without subaccount', {
         userId,
-        accountNumber: bankAccount.accountNumber,
-        bankName: bankAccount.bankName,
       });
-
-      return bankAccount;
-    } catch (error: any) {
-      logger.error('Failed to add bank account', {
-        error: error.message, userId,
-      });
-      throw error;
     }
+
+    const bankAccount = await prisma.bankAccount.create({
+      data: {
+        userId,
+        accountNumber: verified.accountNumber,
+        accountName: verified.accountName,
+        bankCode: verified.bankCode,
+        bankName: bank.name,
+        isVerified: true,
+        isDefault: !hasDefault,
+        flwSubaccountId: flwSubaccountId || null,  // ← store subaccount ID
+      },
+    });
+
+    logger.info('Bank account added with subaccount', {
+      userId,
+      accountNumber: bankAccount.accountNumber,
+      bankName: bankAccount.bankName,
+      flwSubaccountId: bankAccount.flwSubaccountId,
+    });
+
+    return bankAccount;
+  } catch (error: any) {
+    logger.error('Failed to add bank account', { error: error.message, userId });
+    throw error;
   }
+}
 
   // ============================================
   // GET USER BANK ACCOUNTS
