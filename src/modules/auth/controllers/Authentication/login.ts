@@ -122,17 +122,18 @@ export const login = async (req: Request, res: Response): Promise<void> => {
     }
 
     // ============================================
-    // CHECK IF ACCOUNT IS DELETED       
+    // CHECK IF ACCOUNT IS DELETED
+    // Same response as invalid credentials (avoid account enumeration).
     // ============================================
     if (user.isDeleted) {
       logger.warn('Login failed: Account deleted', {
         userId: user.id,
         email,
       });
-      sendResponse(res, 403, {
+      await CacheService.recordLoginFailure(email, ip);
+      sendResponse(res, 401, {
         success: false,
-        message: 'This account has been deleted. Contact support@plz.ng if this is a mistake.',
-        code: 'ACCOUNT_DELETED',
+        message: 'Invalid email or password',
       });
       return;
     }

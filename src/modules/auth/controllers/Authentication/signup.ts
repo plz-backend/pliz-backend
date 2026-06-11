@@ -80,6 +80,17 @@ export const signup = async (req: Request, res: Response): Promise<void> => {
     );
 
     if (existingUser) {
+      if (existingUser.isDeleted) {
+        logger.warn('Registration failed: Email belongs to deleted account', { email });
+        sendResponse(res, 409, {
+          success: false,
+          message:
+            'This email was used for a deleted account. Contact support@plz.ng if you need to restore it.',
+          code: 'ACCOUNT_DELETED',
+        });
+        return;
+      }
+
       if (existingUser.email === email.toLowerCase()) {
         logger.warn('Registration failed: Email already exists', { email });
         sendResponse(res, 409, {

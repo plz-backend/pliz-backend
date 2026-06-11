@@ -36,7 +36,8 @@ import {
   resetPasswordValidation,
   resendVerificationValidation,
   refreshTokenValidation,
-  changePasswordValidation,  
+  changePasswordValidation,
+  deleteAccountValidation,
 } from '../middleware/auth/validation';
 
 // Rate Limiters
@@ -219,8 +220,19 @@ router.post(
   changePassword
 );
 
-// DELETE /api/auth/account
-router.delete('/account', authenticate, deleteAccount);
+/**
+ * @route   DELETE /api/auth/account
+ * @desc    Soft delete current user account (password required)
+ * @access  Private
+ */
+router.delete(
+  '/account',
+  authenticate,
+  authLimiter,
+  deleteAccountValidation,
+  validateRequest,
+  deleteAccount
+);
 
 // ============================================
 // OAUTH ROUTES (PUBLIC)

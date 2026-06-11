@@ -136,6 +136,17 @@ export const refreshToken = async (
       return;
     }
 
+    if (user.isDeleted) {
+      logger.warn('Token refresh blocked: account deleted', { userId });
+      await SessionService.deactivateSession(session.id);
+      sendResponse(res, 403, {
+        success: false,
+        message: 'This account has been deleted. Contact support@plz.ng if this is a mistake.',
+        code: 'ACCOUNT_DELETED',
+      });
+      return;
+    }
+
     const newRefreshToken = TokenService.generateRefreshToken(
       userId,
       user.email,
@@ -180,7 +191,8 @@ export const refreshToken = async (
       emailVerifiedAt: user.emailVerifiedAt,        
       isProfileComplete: user.isProfileComplete,    
       isSuspended: user.isSuspended,                
-      isUnderInvestigation: user.isUnderInvestigation,  
+      isUnderInvestigation: user.isUnderInvestigation,
+      authProvider: user.authProvider,
       createdAt: user.createdAt,                    
       updatedAt: user.updatedAt,
     };

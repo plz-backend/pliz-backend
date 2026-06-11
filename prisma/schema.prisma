@@ -122,6 +122,7 @@ model User {
   @@index([role])
   @@index([isSuspended])
   @@index([isUnderInvestigation])
+  @@index([isDeleted])
   @@map("app_users")
   @@index([googleId])
   @@index([appleId])

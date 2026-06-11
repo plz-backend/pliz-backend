@@ -17,7 +17,12 @@ export const restoreAccount = async (
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, isDeleted: true, email: true },
+      select: {
+        id: true,
+        isDeleted: true,
+        email: true,
+        profile: { select: { agreeToTerms: true } },
+      },
     });
 
     if (!user) {
@@ -37,6 +42,7 @@ export const restoreAccount = async (
         deletedAt: null,
         deletedBy: null,
         deleteReason: null,
+        isProfileComplete: Boolean(user.profile?.agreeToTerms),
       },
     });
 

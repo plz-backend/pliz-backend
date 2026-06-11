@@ -491,6 +491,7 @@ export class BegService {
         status: 'active',
         approved: true,
         expiresAt: { gt: new Date() },
+        user: { isDeleted: false },
       };
       if (categoryId) where.categoryId = categoryId;
 
