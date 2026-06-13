@@ -130,7 +130,7 @@ jobs:
             --set-secrets=OTP_EXPIRY_MINUTES=OTP_EXPIRY_MINUTES:latest
             --set-secrets=JWT_REFRESH_SECRET=JWT_REFRESH_SECRET:latest
             --set-secrets=SCHEDULER_SECRET=SCHEDULER_SECRET:latest
-            --set-env-vars=NODE_ENV=production,SCHEDULER_ENABLED=false,COOKIE_SECURE=true
+            --set-env-vars=NODE_ENV=production,SCHEDULER_ENABLED=false,COOKIE_SECURE=true,COOKIE_DOMAIN=.plz.ng
 
   deploy-production:
     if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && startsWith(inputs.release_tag, 'v'))
@@ -275,7 +275,7 @@ jobs:
             --set-secrets=OTP_EXPIRY_MINUTES=OTP_EXPIRY_MINUTES:latest
             --set-secrets=JWT_REFRESH_SECRET=JWT_REFRESH_SECRET:latest
             --set-secrets=SCHEDULER_SECRET=SCHEDULER_SECRET:latest
-            --set-env-vars=NODE_ENV=production,SCHEDULER_ENABLED=false,COOKIE_SECURE=true
+            --set-env-vars=NODE_ENV=production,SCHEDULER_ENABLED=false,COOKIE_SECURE=true,COOKIE_DOMAIN=.plz.ng
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

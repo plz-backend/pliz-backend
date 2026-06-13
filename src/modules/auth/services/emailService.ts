@@ -7,6 +7,17 @@ const getFrontendBaseUrl = (): string => (
   'http://localhost:8081'
 ).replace(/\/$/, '');
 
+export const getAdminFrontendBaseUrl = (): string => {
+  const adminUrl = process.env.ADMIN_FRONTEND_URL?.trim();
+  if (adminUrl) {
+    return adminUrl.replace(/\/$/, '');
+  }
+  logger.warn(
+    'ADMIN_FRONTEND_URL is not set — admin invite links may point to the wrong app. Set ADMIN_FRONTEND_URL to your plz-admin URL.'
+  );
+  return 'http://localhost:5174';
+};
+
 /**
  * Email Service
  * Handles sending emails for authentication
@@ -179,6 +190,97 @@ export class EmailService {
       logger.info('Password reset email sent', { email });
     } catch (error) {
       logger.error('Failed to send password reset email', { error, email });
+      throw error;
+    }
+  }
+
+  /**
+   * Send admin team invite email (plz-admin accept-invite link).
+   */
+  static async sendAdminTeamInviteEmail(
+    email: string,
+    data: {
+      inviteUrl: string;
+      roleLabel: string;
+      expiresAt: Date;
+      invitedByEmail?: string;
+    }
+  ): Promise<void> {
+    try {
+      if (!this.transporter) {
+        throw new Error('Email service not initialized');
+      }
+
+      const expiresText = data.expiresAt.toLocaleString('en-NG', {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      });
+      const inviterLine = data.invitedByEmail
+        ? `<p>You were invited by <strong>${data.invitedByEmail}</strong>.</p>`
+        : '';
+
+      const mailOptions = {
+        from: `"Pliz Admin" <${process.env.EMAIL_FROM || process.env.EMAIL_USER}>`,
+        to: email,
+        subject: 'You\'re invited to Pliz Admin',
+        html: `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <style>
+              body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+              .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+              .header { background: #4F46E5; color: white; padding: 20px; text-align: center; }
+              .content { background: #f9f9f9; padding: 30px; border-radius: 5px; margin-top: 20px; }
+              .footer { margin-top: 30px; text-align: center; color: #666; font-size: 12px; }
+              .meta { background: #EEF2FF; padding: 12px 16px; border-radius: 6px; margin: 16px 0; }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <div class="header">
+                <h1>Join Pliz Admin</h1>
+              </div>
+              <div class="content">
+                <h2>Team invite</h2>
+                ${inviterLine}
+                <p>You have been invited to join the Pliz admin team as <strong>${data.roleLabel}</strong>.</p>
+                <p>Click the button below to create your account. This link can only be used once.</p>
+                <a
+                  href="${data.inviteUrl}"
+                  style="
+                    display: inline-block;
+                    background-color: #4F46E5;
+                    color: #ffffff;
+                    text-decoration: none;
+                    padding: 12px 24px;
+                    border-radius: 6px;
+                    font-weight: 600;
+                    margin-top: 8px;
+                  "
+                >
+                  Accept invite
+                </a>
+                <p style="margin-top: 20px;">Or copy and paste this link into your browser:</p>
+                <p style="word-break: break-all; color: #4F46E5;">${data.inviteUrl}</p>
+                <div class="meta">
+                  <strong>Expires:</strong> ${expiresText} (48 hours)
+                </div>
+              </div>
+              <div class="footer">
+                <p>If you were not expecting this invite, you can ignore this email.</p>
+                <p>&copy; ${new Date().getFullYear()} Plz. All rights reserved.</p>
+              </div>
+            </div>
+          </body>
+          </html>
+        `,
+      };
+
+      await this.transporter.sendMail(mailOptions);
+      logger.info('Admin team invite email sent', { email });
+    } catch (error) {
+      logger.error('Failed to send admin team invite email', { error, email });
       throw error;
     }
   }

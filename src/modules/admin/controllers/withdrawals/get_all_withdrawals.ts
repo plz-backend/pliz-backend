@@ -113,10 +113,12 @@ export const getAllWithdrawals = async (req: Request, res: Response): Promise<vo
             is_suspended: w.user.isSuspended,
             is_under_investigation: w.user.isUnderInvestigation,
           },
-          beg: {
-            id: w.beg.id,
-            description: w.beg.description,
-          },
+          beg: w.beg
+            ? {
+                id: w.beg.id,
+                title: w.beg.description || 'Help Request',
+              }
+            : null,
           amount_requested: parseFloat(w.amountRequested.toString()),
           company_fee: parseFloat(w.companyFee.toString()),
           vat_fee: parseFloat(w.vatFee.toString()),

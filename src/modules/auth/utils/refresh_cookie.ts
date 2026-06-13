@@ -15,28 +15,17 @@ export function getRefreshTokenFromRequest(req: Request): string {
       : '';
   if (body) return body;
 
+  const fromHeader = getAllCookieValuesFromRequest(req, REFRESH_TOKEN_COOKIE_NAME);
+  if (fromHeader.length > 0) {
+    // Prefer last value when migrating host-only → Domain=.plz.ng cookies.
+    return fromHeader[fromHeader.length - 1]!;
+  }
+
   const fromParser = req.cookies?.[REFRESH_TOKEN_COOKIE_NAME];
   if (typeof fromParser === 'string' && fromParser.length > 0) {
     return fromParser;
   }
 
-  const raw = req.headers.cookie;
-  if (!raw || typeof raw !== 'string') return '';
-
-  const parts = raw.split(';');
-  for (const p of parts) {
-    const s = p.trim();
-    const eq = s.indexOf('=');
-    if (eq === -1) continue;
-    const k = s.slice(0, eq).trim();
-    if (k !== REFRESH_TOKEN_COOKIE_NAME) continue;
-    const v = s.slice(eq + 1).trim();
-    try {
-      return decodeURIComponent(v);
-    } catch {
-      return v;
-    }
-  }
   return '';
 }
 
@@ -57,48 +46,114 @@ function cookieSecureFlag(): boolean {
 }
 
 /**
- * Production + cross-origin (e.g. Vercel → Cloud Run) needs SameSite=None; Secure.
- * Local HTTP dev uses lax + insecure cookies so browsers can store them.
+ * Shared parent domain (e.g. `.plz.ng`) so app.plz.ng JS can read `pliz_csrf` while
+ * `pliz_refresh` stays httpOnly. Omit on localhost — port-only origins share `localhost`.
+ */
+export function cookieDomain(): string | undefined {
+  const raw = process.env.COOKIE_DOMAIN?.trim();
+  if (!raw) return undefined;
+  return raw.startsWith('.') ? raw : `.${raw}`;
+}
+
+type CookieSameSite = 'lax' | 'none' | 'strict';
+
+function sharedCookieOptions(): {
+  secure: boolean;
+  sameSite: CookieSameSite;
+  path: string;
+  domain?: string;
+} {
+  const secure = cookieSecureFlag();
+  const domain = cookieDomain();
+  return {
+    secure,
+    sameSite: secure ? 'none' : 'lax',
+    path: '/',
+    ...(domain ? { domain } : {}),
+  };
+}
+
+/** Remove pre-COOKIE_DOMAIN host-only cookies on the API hostname (api*.plz.ng). */
+function clearLegacyHostOnlyAuthCookies(res: Response): void {
+  const secure = cookieSecureFlag();
+  const hostOnly = {
+    secure,
+    sameSite: (secure ? 'none' : 'lax') as CookieSameSite,
+    path: '/',
+  };
+  res.clearCookie(REFRESH_TOKEN_COOKIE_NAME, { ...hostOnly, httpOnly: true });
+  res.clearCookie(CSRF_COOKIE_NAME, { ...hostOnly, httpOnly: false });
+}
+
+function getAllCookieValuesFromRequest(req: Request, name: string): string[] {
+  const raw = req.headers.cookie;
+  if (!raw || typeof raw !== 'string') return [];
+
+  const values: string[] = [];
+  for (const part of raw.split(';')) {
+    const segment = part.trim();
+    const eq = segment.indexOf('=');
+    if (eq === -1) continue;
+    if (segment.slice(0, eq).trim() !== name) continue;
+    const value = segment.slice(eq + 1).trim();
+    try {
+      values.push(decodeURIComponent(value));
+    } catch {
+      values.push(value);
+    }
+  }
+  return values;
+}
+
+/**
+ * Production + cross-origin (app.plz.ng → api.plz.ng) needs SameSite=None; Secure and
+ * COOKIE_DOMAIN=.plz.ng so the web app can read the CSRF cookie for refresh requests.
+ * Local HTTP dev uses lax + insecure cookies without domain.
  */
 export function setRefreshTokenCookie(res: Response, refreshToken: string): void {
-  const secure = cookieSecureFlag();
+  if (cookieDomain()) {
+    clearLegacyHostOnlyAuthCookies(res);
+  }
+  const base = sharedCookieOptions();
   const csrfToken = crypto.randomBytes(32).toString('hex');
   res.cookie(REFRESH_TOKEN_COOKIE_NAME, refreshToken, {
+    ...base,
     httpOnly: true,
-    secure,
-    sameSite: secure ? 'none' : 'lax',
     maxAge: MAX_AGE_MS,
-    path: '/',
   });
   res.cookie(CSRF_COOKIE_NAME, csrfToken, {
+    ...base,
     httpOnly: false,
-    secure,
-    sameSite: secure ? 'none' : 'lax',
     maxAge: MAX_AGE_MS,
-    path: '/',
   });
 }
 
 export function clearRefreshTokenCookie(res: Response): void {
-  const secure = cookieSecureFlag();
+  if (cookieDomain()) {
+    clearLegacyHostOnlyAuthCookies(res);
+  }
+  const base = sharedCookieOptions();
   res.clearCookie(REFRESH_TOKEN_COOKIE_NAME, {
+    ...base,
     httpOnly: true,
-    secure,
-    sameSite: secure ? 'none' : 'lax',
-    path: '/',
   });
   res.clearCookie(CSRF_COOKIE_NAME, {
+    ...base,
     httpOnly: false,
-    secure,
-    sameSite: secure ? 'none' : 'lax',
-    path: '/',
   });
 }
 
 export function verifyRefreshCookieCsrf(req: Request): boolean {
   if (!hasCookieRefreshToken(req)) return true;
   if (hasBodyRefreshToken(req)) return false;
-  const cookieToken = req.cookies?.[CSRF_COOKIE_NAME];
   const headerToken = req.header('x-csrf-token');
-  return Boolean(cookieToken && headerToken && cookieToken === headerToken);
+  if (!headerToken) return false;
+
+  const cookieTokens = getAllCookieValuesFromRequest(req, CSRF_COOKIE_NAME);
+  if (cookieTokens.length === 0) {
+    const fromParser = req.cookies?.[CSRF_COOKIE_NAME];
+    return typeof fromParser === 'string' && fromParser === headerToken;
+  }
+
+  return cookieTokens.includes(headerToken);
 }

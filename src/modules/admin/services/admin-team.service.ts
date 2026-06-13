@@ -8,6 +8,7 @@ import {
   resolveAdminStaffRole,
   STAFF_ROLE_LABELS,
 } from '../permissions';
+import { EmailService, getAdminFrontendBaseUrl } from '../../auth/services/emailService';
 import logger from '../../../config/logger';
 
 const INVITE_TTL_HOURS = 48;
@@ -77,8 +78,8 @@ export class AdminTeamService {
     email: string;
     adminStaffRole: AdminStaffRole;
     invitedById: string;
-    frontendUrl: string;
-  }): Promise<{ inviteUrl: string; expiresAt: Date; email: string }> {
+    invitedByEmail?: string;
+  }): Promise<{ inviteUrl: string; expiresAt: Date; email: string; emailSent: boolean }> {
     const email = input.email.trim().toLowerCase();
     if (!email.includes('@')) {
       throw new Error('Invalid email address');
@@ -111,12 +112,29 @@ export class AdminTeamService {
       },
     });
 
-    const base = input.frontendUrl.replace(/\/$/, '');
-    const inviteUrl = `${base}/accept-invite?token=${token}`;
+    const base = getAdminFrontendBaseUrl();
+    const inviteUrl = `${base}/accept-invite?token=${encodeURIComponent(token)}`;
 
-    logger.info('Admin invite created', { email, adminStaffRole: input.adminStaffRole });
+    try {
+      await EmailService.sendAdminTeamInviteEmail(email, {
+        inviteUrl,
+        roleLabel: STAFF_ROLE_LABELS[input.adminStaffRole],
+        expiresAt,
+        invitedByEmail: input.invitedByEmail,
+      });
+    } catch (err: unknown) {
+      await prisma.adminInvite.deleteMany({ where: { tokenHash } });
+      const detail = err instanceof Error ? err.message : 'unknown error';
+      throw new Error(`Failed to send invite email: ${detail}`);
+    }
 
-    return { inviteUrl, expiresAt, email };
+    logger.info('Admin invite created and emailed', {
+      email,
+      adminStaffRole: input.adminStaffRole,
+      inviteBaseUrl: base,
+    });
+
+    return { inviteUrl, expiresAt, email, emailSent: true };
   }
 
   static async acceptInvite(input: {

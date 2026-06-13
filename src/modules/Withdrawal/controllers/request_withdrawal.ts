@@ -1,8 +1,10 @@
 import { Request, Response } from 'express';
 import { WithdrawalService } from '../services/withdrawal.service';
+import { toUserWithdrawalRequestMessage } from '../utils/withdrawal-errors';
 import { IApiResponse } from '../../auth/types/user.interface';
 import logger from '../../../config/logger';
 import { maskAccountNumber } from '../../../utils/crypto.util';
+import prisma from '../../../config/database';
 
 const sendResponse = <T = any>(
   res: Response,
@@ -42,12 +44,13 @@ export const requestWithdrawal = async (
 
     const amountToReceive = parseFloat(withdrawal.amountToReceive.toString());
 
-    // Check if withdrawal was auto-processed
-    if (withdrawal.status === 'completed') {
-      // Updated message to mention email
+    const submittedMessage =
+      'Withdrawal submitted successfully! Funds typically arrive in your bank account within 24 hours. Check your email for details.';
+
+    if (withdrawal.status === 'completed' || withdrawal.status === 'processing') {
       sendResponse(res, 201, {
         success: true,
-        message: 'Withdrawal processed successfully! Check your email for details. Funds will arrive in 5-30 minutes.',
+        message: submittedMessage,
         data: {
           withdrawal: {
             id: withdrawal.id,
@@ -66,10 +69,10 @@ export const requestWithdrawal = async (
         },
       });
     } else {
-      // Updated message to mention email
       sendResponse(res, 201, {
         success: true,
-        message: 'Withdrawal request received. We will process it within 24 hours. You will receive an email confirmation.',
+        message:
+          'Withdrawal request received. We will process it within 24 hours. You will receive an email confirmation.',
         data: {
           withdrawal: {
             id: withdrawal.id,
@@ -86,14 +89,39 @@ export const requestWithdrawal = async (
       });
     }
   } catch (error: any) {
-    logger.error('Request withdrawal error', {
-      error: error.message,
-      userId: (req as any).user?.userId,
-    });
+    const userId = (req as any).user?.userId;
+    const { begId } = req.body;
+
+    let internalFailureReason: string | null = null;
+    if (begId && userId) {
+      const latest = await prisma.withdrawal.findFirst({
+        where: { begId, userId },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, status: true, failureReason: true, transferReference: true },
+      });
+      internalFailureReason = latest?.failureReason ?? null;
+      logger.error('Request withdrawal error', {
+        error: error.message,
+        userId,
+        begId,
+        withdrawalId: latest?.id,
+        withdrawalStatus: latest?.status,
+        internalFailureReason,
+        transferReference: latest?.transferReference,
+        userMessage: toUserWithdrawalRequestMessage(error),
+      });
+    } else {
+      logger.error('Request withdrawal error', {
+        error: error.message,
+        userId,
+        begId,
+        userMessage: toUserWithdrawalRequestMessage(error),
+      });
+    }
 
     sendResponse(res, 400, {
       success: false,
-      message: error.message || 'Failed to request withdrawal',
+      message: toUserWithdrawalRequestMessage(error),
     });
   }
 };

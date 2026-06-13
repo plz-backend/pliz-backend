@@ -34,6 +34,8 @@ import { updateCategory } from '../controllers/categories/update_category';
 import { deleteCategory } from '../controllers/categories/delete_category';
 import { getCategories } from '../controllers/categories/get_categories';
 
+import { restoreAccount } from '../controllers/users/restore_account';
+
 import {
   adminGetStories,
   adminGetStoryById,
@@ -124,5 +126,8 @@ router.get('/kyc', p(AdminPermission.KYC_VIEW), getAllVerifications);
 router.get('/kyc/:userId', p(AdminPermission.KYC_VIEW), getVerification);
 router.patch('/kyc/:userId/verify', p(AdminPermission.KYC_MODERATE), manuallyVerifyValidation, validateRequest, manuallyVerify);
 router.patch('/kyc/:userId/reject', p(AdminPermission.KYC_MODERATE), manuallyRejectValidation, validateRequest, manuallyReject);
+
+// Replace with
+router.patch('/users/:userId/restore', p(AdminPermission.USERS_MODERATE), restoreAccount);
 
 export default router;

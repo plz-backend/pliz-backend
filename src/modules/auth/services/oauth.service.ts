@@ -92,6 +92,9 @@ export class OAuthService {
       });
 
       if (existingByProvider) {
+        if (existingByProvider.isDeleted) {
+          throw new Error('Unable to sign in. Please try again.');
+        }
         logger.info('OAuth user found by provider ID', {
           userId: existingByProvider.id,
           provider: profile.provider,
@@ -106,6 +109,9 @@ export class OAuthService {
       });
 
       if (existingByEmail) {
+        if (existingByEmail.isDeleted) {
+          throw new Error('Unable to sign in. Please try again.');
+        }
         // Link OAuth provider to existing email account
         const updated = await prisma.user.update({
           where: { id: existingByEmail.id },

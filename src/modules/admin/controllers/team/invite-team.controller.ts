@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { AdminStaffRole } from '@prisma/client';
+import prisma from '../../../../config/database';
 import { AdminTeamService } from '../../services/admin-team.service';
 import { AdminService } from '../../services/admin.service';
 import { IApiResponse } from '../../../auth/types/user.interface';
@@ -38,16 +39,16 @@ export const inviteTeamMember = async (req: Request, res: Response): Promise<voi
       return;
     }
 
-    const frontendUrl =
-      process.env.ADMIN_FRONTEND_URL ||
-      process.env.FRONTEND_URL?.split(',')[0]?.trim() ||
-      'http://localhost:5174';
+    const inviter = await prisma.user.findUnique({
+      where: { id: adminId },
+      select: { email: true },
+    });
 
     const result = await AdminTeamService.createInvite({
       email,
       adminStaffRole,
       invitedById: adminId,
-      frontendUrl,
+      invitedByEmail: inviter?.email,
     });
 
     await AdminService.logAction({
@@ -60,12 +61,18 @@ export const inviteTeamMember = async (req: Request, res: Response): Promise<voi
 
     sendResponse(res, 201, {
       success: true,
-      message: 'Invite created. Share the link with your teammate.',
+      message: `Invite email sent to ${result.email}. It expires in 48 hours.`,
       data: result,
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Failed to create invite';
     logger.error('Invite team member error', { error: message });
-    sendResponse(res, 400, { success: false, message });
+    const isEmailError = message.includes('Failed to send invite email');
+    sendResponse(res, isEmailError ? 502 : 400, {
+      success: false,
+      message: isEmailError
+        ? 'Could not send the invite email. Check email configuration and try again.'
+        : message,
+    });
   }
 };

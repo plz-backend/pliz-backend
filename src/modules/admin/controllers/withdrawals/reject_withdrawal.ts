@@ -3,6 +3,7 @@ import prisma from '../../../../config/database';
 import { Decimal } from '@prisma/client/runtime/library';
 import { AdminService } from '../../services/admin.service';
 import { WithdrawalEmailService } from '../../../Withdrawal/services/withdrawal_email.service';
+import { WithdrawalAuditService } from '../../../Withdrawal/services/withdrawal-audit.service';
 import { IApiResponse } from '../../../auth/types/user.interface';
 import logger from '../../../../config/logger';
 import { maskAccountNumber } from '../../../../utils/crypto.util';
@@ -154,6 +155,18 @@ export const rejectWithdrawal = async (
     });
 
     logger.warn('Withdrawal rejected by admin', { withdrawalId: id, reason, adminId });
+
+    WithdrawalAuditService.recordAdminRejected(
+      {
+        withdrawalId: id,
+        userId: withdrawal.userId,
+        begId: withdrawal.begId,
+        amountToReceive: Number(withdrawal.amountToReceive),
+        status: 'failed',
+      },
+      reason,
+      adminId
+    );
 
     sendResponse(res, 200, {
       success: true,

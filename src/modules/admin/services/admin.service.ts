@@ -185,6 +185,7 @@ export class AdminService {
     limit?: number;
     suspended?: boolean;
     underInvestigation?: boolean;
+    deleted?: boolean;
     role?: string;
     /** customers = app users only (default); team = staff; all = everyone */
     audience?: 'customers' | 'team' | 'all';
@@ -197,6 +198,7 @@ export class AdminService {
     if (filters.suspended !== undefined) where.isSuspended = filters.suspended;
     if (filters.underInvestigation !== undefined)
       where.isUnderInvestigation = filters.underInvestigation;
+    if (filters.deleted !== undefined) where.isDeleted = filters.deleted;
 
     const audience = filters.audience ?? 'customers';
     if (filters.role) {
@@ -225,6 +227,8 @@ export class AdminService {
           isUnderInvestigation: true,
           investigationReason: true,
           investigationStartedAt: true,
+          isDeleted: true,
+          deletedAt: true,
           createdAt: true,
           stats: {
             select: {

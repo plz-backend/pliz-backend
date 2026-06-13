@@ -141,6 +141,21 @@ export const changePasswordValidation: ValidationChain[] = [
 
 
 /**
+ * Delete account validation
+ */
+export const deleteAccountValidation: ValidationChain[] = [
+  body('password')
+    .notEmpty()
+    .withMessage('Password is required to delete your account'),
+
+  body('reason')
+    .optional()
+    .trim()
+    .isLength({ max: 500 })
+    .withMessage('Reason must not exceed 500 characters'),
+];
+
+/**
  * Resend verification email validation
  */
 export const resendVerificationValidation = [

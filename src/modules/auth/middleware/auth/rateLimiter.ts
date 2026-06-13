@@ -14,6 +14,13 @@ const rateLimitHandler = (req: Request, res: Response): void => {
   res.status(429).json(response);
 };
 
+/** Per authenticated user when available; otherwise IP (shared NAT fallback). */
+const authenticatedUserOrIpKey = (req: Request): string => {
+  const userId = (req as Request & { user?: { userId?: string } }).user?.userId;
+  if (userId) return `user:${userId}`;
+  return req.ip || req.socket.remoteAddress || 'unknown';
+};
+
 class RedisRateLimitStore {
   windowMs = 900000;
   localKeys = false;
@@ -132,11 +139,27 @@ export const kycUploadLimiter = rateLimit({
   handler: rateLimitHandler,
 });
 
-/** Withdrawals — 5 per hour */
-export const withdrawalLimiter = rateLimit({
-  store: new RedisRateLimitStore('withdrawal') as any,
+/** Bank resolve / save during withdraw setup — generous per user (not shared IP bucket). */
+export const withdrawalBankLimiter = rateLimit({
+  store: new RedisRateLimitStore('withdrawal_bank') as any,
   windowMs: 60 * 60 * 1000,
-  max: 5,
+  max: 40,
+  keyGenerator: authenticatedUserOrIpKey,
+  message: {
+    success: false,
+    message: 'Too many bank verification attempts. Please try again later.',
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: rateLimitHandler,
+});
+
+/** Actual payout requests — per user; still caps PIN / transfer abuse. */
+export const withdrawalRequestLimiter = rateLimit({
+  store: new RedisRateLimitStore('withdrawal_request') as any,
+  windowMs: 60 * 60 * 1000,
+  max: 15,
+  keyGenerator: authenticatedUserOrIpKey,
   message: {
     success: false,
     message: 'Too many withdrawal attempts. Please try again later.',
@@ -145,6 +168,9 @@ export const withdrawalLimiter = rateLimit({
   legacyHeaders: false,
   handler: rateLimitHandler,
 });
+
+/** @deprecated Use withdrawalBankLimiter / withdrawalRequestLimiter instead. */
+export const withdrawalLimiter = withdrawalRequestLimiter;
 
 /** Support tickets / AI chat — 20 per 15 minutes */
 export const supportLimiter = rateLimit({

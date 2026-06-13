@@ -57,7 +57,7 @@ export const updateBeg = async (req: Request, res: Response): Promise<void> => {
     // ============================================
     // CHECK IF BEG STATUS ALLOWS UPDATES
     // ============================================
-    const finalizedStatuses = ['rejected', 'cancelled', 'expired', 'funded', 'flagged'];
+    const finalizedStatuses = ['rejected', 'cancelled', 'expired', 'withdrawn', 'funded', 'flagged'];
     if (finalizedStatuses.includes(existingBeg.status)) {
       logger.warn('Attempt to update finalized beg', { begId, userId, status: existingBeg.status });
       sendResponse(res, 400, {
