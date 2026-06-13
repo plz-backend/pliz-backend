@@ -9,7 +9,7 @@ import { authenticate } from '../../auth/middleware/auth/auth';
 import { updateBankAccount } from '../controllers/update_bank_account';
 import { deleteBankAccount } from '../controllers/delete_bank_account';
 import { checkAccountStatus } from '../../auth/middleware/auth/account_status.middleware';
-import { withdrawalLimiter } from '../../auth/middleware/auth/rateLimiter';
+import { withdrawalBankLimiter, withdrawalRequestLimiter } from '../../auth/middleware/auth/rateLimiter';
 
 const router = Router();
 
@@ -29,14 +29,14 @@ router.get('/banks', getBanks);
  * @desc    Resolve account name via Flutterwave (does not save)
  * @access  Private
  */
-router.post('/resolve-account', authenticate, withdrawalLimiter, resolveBankAccount);
+router.post('/resolve-account', authenticate, withdrawalBankLimiter, resolveBankAccount);
 
 /**
  * @route   POST /api/withdrawals/bank-accounts
  * @desc    Add a new bank account
  * @access  Private
  */
-router.post('/bank-accounts', authenticate, checkAccountStatus, withdrawalLimiter, addBankAccount);
+router.post('/bank-accounts', authenticate, checkAccountStatus, withdrawalBankLimiter, addBankAccount);
 
 /**
  * @route   GET /api/withdrawals/bank-accounts
@@ -50,14 +50,14 @@ router.get('/bank-accounts', authenticate, getBankAccounts);
  * @desc    Set bank account as default
  * @access  Private
  */
-router.put('/bank-accounts/:id', authenticate, withdrawalLimiter, updateBankAccount);
+router.put('/bank-accounts/:id', authenticate, withdrawalBankLimiter, updateBankAccount);
 
 /**
  * @route   DELETE /api/withdrawals/bank-accounts/:id
  * @desc    Delete a bank account
  * @access  Private
  */
-router.delete('/bank-accounts/:id', authenticate, withdrawalLimiter, deleteBankAccount);
+router.delete('/bank-accounts/:id', authenticate, withdrawalBankLimiter, deleteBankAccount);
 
 // ============================================
 // WITHDRAWAL MANAGEMENT
@@ -75,6 +75,6 @@ router.get('/', authenticate, getWithdrawals);
  * @desc    Request withdrawal of raised funds from a funded or expired beg
  * @access  Private
  */
-router.post('/request', authenticate, checkAccountStatus, withdrawalLimiter, requestWithdrawal);
+router.post('/request', authenticate, checkAccountStatus, withdrawalRequestLimiter, requestWithdrawal);
 
 export default router;

@@ -661,7 +661,6 @@ model BankAccount {
   bankName      String    @map("bank_name") @db.VarChar(100)
   isVerified    Boolean   @default(false) @map("is_verified")
   isDefault     Boolean   @default(false) @map("is_default")
-  flwSubaccountId   String?   @map("flw_subaccount_id") @db.VarChar(255) // ← Flutterwave subaccount ID
   createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
 
   // Relations

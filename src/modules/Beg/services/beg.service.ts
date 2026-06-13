@@ -791,6 +791,8 @@ export class BegService {
       rejectionReason: beg.rejectionReason,
       expiresAt: beg.expiresAt,
       createdAt: beg.createdAt,
+      isWithdrawn: beg.isWithdrawn,
+      withdrawnAt: beg.withdrawnAt,
       timeRemaining,
     };
   }

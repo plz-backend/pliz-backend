@@ -18,6 +18,24 @@ const GRATITUDE_MESSAGES: Record<1 | 2, string> = {
 const BEG_DONATIONS_CACHE_PREFIX = 'beg_donations:';
 const CACHE_TTL = 300; // 5 minutes
 
+/** Payment confirmed after beg closed (withdraw / expiry) — needs manual refund review. */
+export class BegClosedForDonationError extends Error {
+  constructor(message = 'This request is no longer accepting donations') {
+    super(message);
+    this.name = 'BegClosedForDonationError';
+  }
+}
+
+function isBegOpenForDonation(beg: {
+  status: string;
+  isWithdrawn: boolean;
+  expiresAt: Date;
+}): boolean {
+  if (beg.isWithdrawn) return false;
+  if (beg.status !== 'active') return false;
+  return new Date() <= new Date(beg.expiresAt);
+}
+
 // ============================================
 // HELPER
 // ============================================
@@ -62,6 +80,8 @@ export class DonationService {
               description: true,
               category: { select: { name: true, icon: true } },
               status: true,
+              isWithdrawn: true,
+              expiresAt: true,
               amountRequested: true,
               amountRaised: true,
             },
@@ -92,6 +112,25 @@ export class DonationService {
 
       // STEPS 2-8: All inside $transaction
       const result = await prisma.$transaction(async (tx) => {
+        const begRow = await tx.beg.findUnique({
+          where: { id: donation.begId },
+          select: {
+            status: true,
+            isWithdrawn: true,
+            expiresAt: true,
+            amountRequested: true,
+            amountRaised: true,
+          },
+        });
+
+        if (!begRow || !isBegOpenForDonation(begRow)) {
+          await tx.donation.update({
+            where: { id: donation.id },
+            data: { status: 'failed' },
+          });
+          throw new BegClosedForDonationError();
+        }
+
         // STEP 2: UPDATE donations.status → 'success'
         await tx.donation.update({
           where: { id: donation.id },
@@ -290,13 +329,17 @@ export class DonationService {
         description: true,
         category: { select: { name: true, icon: true } },
         status: true,
+        isWithdrawn: true,
+        expiresAt: true,
         amountRequested: true,
         amountRaised: true,
       },
     });
 
     if (!beg) throw new Error('Beg not found');
-    if (beg.status !== 'active') throw new Error(`Beg status: ${beg.status}`);
+    if (!isBegOpenForDonation(beg)) {
+      throw new BegClosedForDonationError();
+    }
 
     // ← ADD THIS
     if (beg.userId === data.donorId) {

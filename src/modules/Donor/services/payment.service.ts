@@ -47,10 +47,7 @@ export class PaymentService {
 
   // ============================================
   // INITIALIZE PAYMENT
-  // If subaccountId is provided, Flutterwave
-  // automatically splits:
-  // → 7.525% to Plz main account
-  // → 92.475% to beneficiary subaccount
+  // Full amount settles to Plz main account; fees at withdrawal.
   // ============================================
   static async initializePayment(data: {
     email: string;
@@ -60,7 +57,6 @@ export class PaymentService {
     donorId?: string | null;
     isAnonymous: boolean;
     redirectUrl?: string;
-    subaccountId?: string | null;
   }): Promise<{
     success: boolean;
     paymentUrl?: string;
@@ -95,26 +91,6 @@ export class PaymentService {
         },
       };
 
-      // ── ADD SPLIT IF SUBACCOUNT EXISTS ─────
-      // 7.525% → Plz main account (automatic)
-      // 92.475% → Beneficiary subaccount
-      if (data.subaccountId) {
-        payload.subaccounts = [
-          {
-            id: data.subaccountId,
-            transaction_charge_type: 'percentage',
-            transaction_charge: 92.475,
-          },
-        ];
-
-        logger.info('Payment initialized with split', {
-          reference: data.reference,
-          subaccountId: data.subaccountId,
-          beneficiaryRate: '92.475%',
-          platformRate: '7.525%',
-        });
-      }
-
       const response = await axios.post(
         `${FLW_BASE_URL}/payments`,
         payload,
@@ -136,7 +112,6 @@ export class PaymentService {
         reference: data.reference,
         begId: data.begId,
         amount: data.amount,
-        hasSplit: !!data.subaccountId,
       });
 
       return {

@@ -285,8 +285,8 @@ export const withdrawalSuccessTemplate = (data: IWithdrawalSuccessEmail): string
     <div class="info-box">
       <strong>⏱️ When will I receive the money?</strong>
       <p style="margin: 10px 0 0 0;">
-        The transfer typically takes 5-30 minutes to reflect in your account. 
-        If you don't receive it within 1 hour, please check your bank account or contact support.
+        Funds typically arrive in your bank account within 24 hours.
+        If you don&apos;t receive them after that, please check your bank account or contact support.
       </p>
     </div>
 

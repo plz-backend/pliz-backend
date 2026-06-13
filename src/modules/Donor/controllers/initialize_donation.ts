@@ -5,8 +5,6 @@ import { PaymentMethodService } from '../../Payment/services/payment_method.serv
 import { trustEngine } from '../../../services/trust-engine';
 import { IApiResponse } from '../../auth/types/user.interface';
 import logger from '../../../config/logger';
-import { SubaccountService } from '../../Payment/services/subaccount.service';
-
 
 const sendResponse = <T = any>(
   res: Response,
@@ -85,6 +83,7 @@ export const initializeDonation = async (
         userId: true,
         status: true,
         approved: true,
+        isWithdrawn: true,
         expiresAt: true,
         amountRequested: true,
         amountRaised: true,
@@ -93,6 +92,13 @@ export const initializeDonation = async (
 
     if (!beg) {
       sendResponse(res, 404, { success: false, message: 'Beg not found' });
+      return;
+    }
+    if (beg.isWithdrawn) {
+      sendResponse(res, 400, {
+        success: false,
+        message: 'This request is closed — funds have been withdrawn.',
+      });
       return;
     }
     if (beg.status !== 'active' || !beg.approved) {
@@ -213,13 +219,6 @@ export const initializeDonation = async (
       return;
     }
 
-    // ── GET BENEFICIARY SUBACCOUNT ─────────────
-// Flutterwave will auto-split:
-// 7.525% → Plz | 92.475% → beneficiary
-const subaccountId = await SubaccountService.getSubaccountForUser(
-  beg.userId
-);
-
     // ============================================
     // FLUTTERWAVE CHECKOUT
     // ============================================
@@ -231,7 +230,6 @@ const subaccountId = await SubaccountService.getSubaccountForUser(
       donorId,
       isAnonymous: effectiveIsAnonymous,
       redirectUrl: checkoutRedirectUrl,
-      subaccountId,
     });
 
     if (!payment.success) {

@@ -6,6 +6,13 @@ import logger from '../../../config/logger';
 import { WithdrawalEmailService } from './withdrawal_email.service';
 import { TransactionPinService } from '../../Security/services/transaction-pin.service';
 import { decryptText, maskAccountNumber } from '../../../utils/crypto.util';
+import {
+  extractInternalTransferFailureReason,
+  toUserWithdrawalFailureDisplay,
+  toUserWithdrawalRequestMessage,
+  WITHDRAWAL_TRANSFER_FAILURE_USER_MESSAGE,
+} from '../utils/withdrawal-errors';
+import { WithdrawalAuditService } from './withdrawal-audit.service';
 
 // ── FEE RATES ─────────────────────────────
 const COMPANY_FEE_RATE = 0.07;    // ← 7% (was 5%)
@@ -67,6 +74,7 @@ interface IBegWithdrawalRelations {
   beg: {
     id: string;
     description: string | null;
+    amountRequested: Decimal;
     amountRaised: Decimal;
     category: { name: string; icon: string | null };
   };
@@ -118,6 +126,7 @@ static isBegWithdrawable(beg: {
   status: string;
   expiresAt: Date;
   amountRaised: Decimal | number | string;
+  isWithdrawn?: boolean;
 }): { allowed: boolean; reason?: string } {
   const amountRaised = parseFloat(beg.amountRaised.toString());
 
@@ -128,23 +137,342 @@ static isBegWithdrawable(beg: {
     };
   }
 
-  if (['cancelled', 'rejected', 'flagged'].includes(beg.status)) {
-    return {
-      allowed: false,
-      reason: 'This request is not eligible for withdrawal.',
-    };
-  }
-
-  if (beg.status === 'withdrawn') {
+  if (beg.isWithdrawn) {
     return {
       allowed: false,
       reason: 'You have already withdrawn funds from this request.',
     };
   }
 
-  // ← Allow withdrawal at any time
+  if (['cancelled', 'rejected', 'flagged', 'withdrawn'].includes(beg.status)) {
+    return {
+      allowed: false,
+      reason: 'This request is not eligible for withdrawal.',
+    };
+  }
+
+  // Allow withdrawal while active (Withdraw Now) or after funded/expired
   return { allowed: true };
 }
+
+  /** Status after owner withdraw closes the request. */
+  static computeClosedBegStatus(
+    raised: number,
+    requested: number
+  ): 'funded' | 'withdrawn' {
+    return requested > 0 && raised >= requested ? 'funded' : 'withdrawn';
+  }
+
+  /** Restore beg when a payout fails after the request was closed for withdrawal. */
+  static resolveBegStatusAfterWithdrawalReopen(beg: {
+    expiresAt: Date;
+    amountRaised: Decimal | number | string;
+    amountRequested: Decimal | number | string;
+  }): 'active' | 'funded' | 'expired' {
+    const raised = parseFloat(beg.amountRaised.toString());
+    const requested = parseFloat(beg.amountRequested.toString());
+    if (requested > 0 && raised >= requested) return 'funded';
+    if (new Date() > new Date(beg.expiresAt)) return 'expired';
+    return 'active';
+  }
+
+  static async reopenBegAfterFailedWithdrawal(begId: string): Promise<void> {
+    const beg = await prisma.beg.findUnique({
+      where: { id: begId },
+      select: {
+        isWithdrawn: true,
+        expiresAt: true,
+        amountRaised: true,
+        amountRequested: true,
+      },
+    });
+    if (!beg?.isWithdrawn) return;
+
+    const status = this.resolveBegStatusAfterWithdrawalReopen(beg);
+    await prisma.beg.update({
+      where: { id: begId },
+      data: {
+        isWithdrawn: false,
+        withdrawnAt: null,
+        status,
+      },
+    });
+
+    logger.info('Beg reopened after failed withdrawal', { begId, status });
+
+    const linkedWithdrawal = await prisma.withdrawal.findFirst({
+      where: { begId },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, userId: true, transferReference: true },
+    });
+    if (linkedWithdrawal) {
+      WithdrawalAuditService.recordBegReopened(
+        {
+          withdrawalId: linkedWithdrawal.id,
+          userId: linkedWithdrawal.userId,
+          begId,
+          transferReference: linkedWithdrawal.transferReference,
+        },
+        status
+      );
+    }
+  }
+
+  static async closeBegForWithdrawal(
+    begId: string,
+    raised: number,
+    requested: number
+  ): Promise<void> {
+    const endStatus = this.computeClosedBegStatus(raised, requested);
+    await prisma.beg.update({
+      where: { id: begId },
+      data: {
+        isWithdrawn: true,
+        withdrawnAt: new Date(),
+        status: endStatus,
+      },
+    });
+  }
+
+  private static async loadWithdrawalForTransferEmail(
+    withdrawalId: string
+  ): Promise<IBegWithdrawalRelations | null> {
+    return (await prisma.withdrawal.findUnique({
+      where: { id: withdrawalId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            username: true,
+            isSuspended: true,
+            isUnderInvestigation: true,
+            profile: { select: { displayName: true } },
+          },
+        },
+        bankAccount: true,
+        beg: {
+          select: {
+            id: true,
+            description: true,
+            amountRequested: true,
+            amountRaised: true,
+            category: { select: { name: true, icon: true } },
+          },
+        },
+      },
+    })) as IBegWithdrawalRelations | null;
+  }
+
+  private static async sendWithdrawalSuccessEmail(
+    withdrawal: IBegWithdrawalRelations,
+    transferReference: string
+  ): Promise<void> {
+    const begTitle = buildBegTitle(
+      withdrawal.beg.category,
+      withdrawal.beg.description
+    );
+    const recipientName =
+      withdrawal.user.profile?.displayName || withdrawal.user.username;
+    const amountToReceive = parseFloat(withdrawal.amountToReceive.toString());
+    const transferAccountNumber =
+      decryptText(withdrawal.bankAccount.accountNumberEncrypted) ??
+      withdrawal.bankAccount.accountNumber;
+    const displayAccountNumber = withdrawal.bankAccount.accountNumberLast4
+      ? `******${withdrawal.bankAccount.accountNumberLast4}`
+      : maskAccountNumber(transferAccountNumber);
+
+    await WithdrawalEmailService.sendSuccessEmail(withdrawal.user.email, {
+      recipientName,
+      amount: parseFloat(withdrawal.amountRequested.toString()),
+      companyFee: parseFloat(withdrawal.companyFee.toString()),
+      vatFee: parseFloat(withdrawal.vatFee.toString()),
+      totalFees: parseFloat(withdrawal.totalFees.toString()),
+      amountToReceive,
+      bankName: withdrawal.bankAccount.bankName,
+      accountNumber: displayAccountNumber,
+      accountName: withdrawal.bankAccount.accountName,
+      transferReference,
+      begTitle,
+      processedAt: new Date(),
+    });
+  }
+
+  private static async sendWithdrawalFailureEmail(
+    withdrawal: IBegWithdrawalRelations,
+    failureReason: string
+  ): Promise<void> {
+    const begTitle = buildBegTitle(
+      withdrawal.beg.category,
+      withdrawal.beg.description
+    );
+    const recipientName =
+      withdrawal.user.profile?.displayName || withdrawal.user.username;
+    const amountToReceive = parseFloat(withdrawal.amountToReceive.toString());
+    const transferAccountNumber =
+      decryptText(withdrawal.bankAccount.accountNumberEncrypted) ??
+      withdrawal.bankAccount.accountNumber;
+    const displayAccountNumber = withdrawal.bankAccount.accountNumberLast4
+      ? `******${withdrawal.bankAccount.accountNumberLast4}`
+      : maskAccountNumber(transferAccountNumber);
+
+    await WithdrawalEmailService.sendFailureEmail(withdrawal.user.email, {
+      recipientName,
+      amount: amountToReceive,
+      bankName: withdrawal.bankAccount.bankName,
+      accountNumber: displayAccountNumber,
+      failureReason:
+        toUserWithdrawalFailureDisplay(failureReason) ??
+        WITHDRAWAL_TRANSFER_FAILURE_USER_MESSAGE,
+      begTitle,
+      supportEmail: process.env.SUPPORT_EMAIL || 'support@plz.app',
+    });
+  }
+
+  /**
+   * Flutterwave transfer webhook — payout succeeded (async or late confirmation).
+   */
+  static async handleTransferSuccessful(transferReference: string): Promise<void> {
+    const withdrawal = await prisma.withdrawal.findFirst({
+      where: { transferReference },
+    });
+    if (!withdrawal) {
+      logger.warn('Transfer success webhook: withdrawal not found', {
+        transferReference,
+      });
+      return;
+    }
+    if (withdrawal.status === 'completed') return;
+
+    const beg = await prisma.beg.findUnique({
+      where: { id: withdrawal.begId },
+      select: { amountRequested: true, amountRaised: true },
+    });
+    if (!beg) {
+      logger.error('Transfer success webhook: beg not found', {
+        withdrawalId: withdrawal.id,
+        begId: withdrawal.begId,
+      });
+      return;
+    }
+
+    const raised = parseFloat(beg.amountRaised.toString());
+    const requested = parseFloat(beg.amountRequested.toString());
+
+    await prisma.$transaction(async (tx) => {
+      await tx.withdrawal.update({
+        where: { id: withdrawal.id },
+        data: {
+          status: 'completed',
+          processedAt: new Date(),
+        },
+      });
+      await tx.beg.update({
+        where: { id: withdrawal.begId },
+        data: {
+          isWithdrawn: true,
+          withdrawnAt: new Date(),
+          status: this.computeClosedBegStatus(raised, requested),
+        },
+      });
+    });
+
+    const full = await this.loadWithdrawalForTransferEmail(withdrawal.id);
+    if (full) {
+      try {
+        await this.sendWithdrawalSuccessEmail(full, transferReference);
+      } catch (error: unknown) {
+        logger.error('Transfer success webhook: email failed', {
+          withdrawalId: withdrawal.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    logger.info('Transfer success webhook: withdrawal completed', {
+      withdrawalId: withdrawal.id,
+      transferReference,
+    });
+
+    WithdrawalAuditService.recordCompleted({
+      withdrawalId: withdrawal.id,
+      userId: withdrawal.userId,
+      begId: withdrawal.begId,
+      transferReference,
+      amountToReceive: parseFloat(withdrawal.amountToReceive.toString()),
+    });
+  }
+
+  /**
+   * Flutterwave transfer webhook — payout failed; reopen beg so owner can retry.
+   */
+  static async handleTransferFailed(
+    transferReference: string,
+    failureReason: string,
+    flutterwavePayload?: unknown
+  ): Promise<void> {
+    const withdrawal = await prisma.withdrawal.findFirst({
+      where: { transferReference },
+    });
+    if (!withdrawal) {
+      logger.warn('Transfer failed webhook: withdrawal not found', {
+        transferReference,
+      });
+      return;
+    }
+    if (withdrawal.status === 'completed') {
+      logger.error('Transfer failed webhook after completion — manual review', {
+        withdrawalId: withdrawal.id,
+        transferReference,
+        failureReason,
+      });
+      return;
+    }
+
+    await prisma.withdrawal.update({
+      where: { id: withdrawal.id },
+      data: {
+        status: 'failed',
+        failureReason,
+      },
+    });
+
+    await this.reopenBegAfterFailedWithdrawal(withdrawal.begId);
+
+    const full = await this.loadWithdrawalForTransferEmail(withdrawal.id);
+    if (full) {
+      try {
+        await this.sendWithdrawalFailureEmail(full, failureReason);
+      } catch (error: unknown) {
+        logger.error('Transfer failed webhook: email failed', {
+          withdrawalId: withdrawal.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    logger.warn('Transfer failed webhook: withdrawal failed, beg reopened', {
+      withdrawalId: withdrawal.id,
+      transferReference,
+      failureReason,
+    });
+
+    WithdrawalAuditService.recordFailed(
+      {
+        withdrawalId: withdrawal.id,
+        userId: withdrawal.userId,
+        begId: withdrawal.begId,
+        transferReference,
+        amountToReceive: parseFloat(withdrawal.amountToReceive.toString()),
+        status: 'failed',
+      },
+      {
+        internalReason: failureReason,
+        source: 'flutterwave_webhook',
+        flutterwavePayload,
+      }
+    );
+  }
 
   // ============================================
   // CALCULATE FEES
@@ -310,6 +638,14 @@ static isBegWithdrawable(beg: {
         amountToReceive: fees.amountToReceive,
       });
 
+      WithdrawalAuditService.recordCreated({
+        withdrawalId: withdrawal.id,
+        userId,
+        begId,
+        amountToReceive: fees.amountToReceive,
+        status: 'pending',
+      });
+
       try {
         await this.processWithdrawal(withdrawal.id, true);
         return await prisma.withdrawal.findUnique({
@@ -329,6 +665,35 @@ static isBegWithdrawable(beg: {
           withdrawalId: withdrawal.id,
           error: directError.message,
         });
+
+        const afterFailure = await prisma.withdrawal.findUnique({
+          where: { id: withdrawal.id },
+          select: {
+            status: true,
+            failureReason: true,
+            transferReference: true,
+          },
+        });
+        if (
+          afterFailure?.status === 'failed' &&
+          afterFailure.failureReason
+        ) {
+          WithdrawalAuditService.recordFailed(
+            {
+              withdrawalId: withdrawal.id,
+              userId,
+              begId,
+              transferReference: afterFailure.transferReference,
+              amountToReceive: fees.amountToReceive,
+              status: afterFailure.status,
+            },
+            {
+              internalReason: afterFailure.failureReason,
+              source: 'user_request',
+            }
+          );
+        }
+
         return await prisma.withdrawal.findUnique({
           where: { id: withdrawal.id },
           include: {
@@ -359,6 +724,8 @@ static isBegWithdrawable(beg: {
     withdrawalId: string,
     autoProcessed: boolean = false
   ): Promise<any> {
+    let begClosedThisRun = false;
+
     try {
       const withdrawal = (await prisma.withdrawal.findUnique({
         where: { id: withdrawalId },
@@ -378,6 +745,7 @@ static isBegWithdrawable(beg: {
             select: {
               id: true,
               description: true,
+              amountRequested: true,
               amountRaised: true,
               category: { select: { name: true, icon: true } },
             },
@@ -391,13 +759,24 @@ static isBegWithdrawable(beg: {
       }
 
       if (withdrawal.user.isSuspended || withdrawal.user.isUnderInvestigation) {
+        const onHoldReason = 'Account suspended or under investigation';
         await prisma.withdrawal.update({
           where: { id: withdrawalId },
           data: {
             status: 'on_hold',
-            failureReason: 'Account suspended or under investigation',
+            failureReason: onHoldReason,
           },
         });
+        WithdrawalAuditService.recordOnHold(
+          {
+            withdrawalId,
+            userId: withdrawal.userId,
+            begId: withdrawal.begId,
+            amountToReceive: parseFloat(withdrawal.amountToReceive.toString()),
+            status: 'on_hold',
+          },
+          onHoldReason
+        );
         throw new Error('User account is suspended or under investigation');
       }
 
@@ -411,29 +790,24 @@ static isBegWithdrawable(beg: {
         .substring(2, 9)
         .toUpperCase()}`;
 
-      const begTitle = buildBegTitle(
-        withdrawal.beg.category,
-        withdrawal.beg.description
-      );
-      const recipientName =
-        withdrawal.user.profile?.displayName || withdrawal.user.username;
       const amountToReceive = parseFloat(withdrawal.amountToReceive.toString());
+      const raised = parseFloat(withdrawal.beg.amountRaised.toString());
+      const requested = parseFloat(withdrawal.beg.amountRequested.toString());
 
-      // ── FLUTTERWAVE TRANSFER ──────────────────
       const transferAccountNumber =
         decryptText(withdrawal.bankAccount.accountNumberEncrypted) ??
         withdrawal.bankAccount.accountNumber;
-      const displayAccountNumber = withdrawal.bankAccount.accountNumberLast4
-        ? `******${withdrawal.bankAccount.accountNumberLast4}`
-        : maskAccountNumber(transferAccountNumber);
 
       const transferResponse = await axios.post(
         `${FLW_BASE_URL}/transfers`,
         {
           account_bank: withdrawal.bankAccount.bankCode,
           account_number: transferAccountNumber,
-          amount: amountToReceive,        // ← Naira directly
-          narration: `Plz withdrawal — ${begTitle}`,
+          amount: amountToReceive,
+          narration: `Plz withdrawal — ${buildBegTitle(
+            withdrawal.beg.category,
+            withdrawal.beg.description
+          )}`,
           currency: 'NGN',
           reference,
           debit_currency: 'NGN',
@@ -441,84 +815,178 @@ static isBegWithdrawable(beg: {
         { headers: getHeaders(), timeout: 30000 }
       );
 
-      if (
-        transferResponse.data?.status !== 'success' &&
-        transferResponse.data?.data?.status !== 'SUCCESSFUL' &&
-        transferResponse.data?.data?.status !== 'NEW'
-      ) {
-        const failureReason =
-          transferResponse.data?.message || 'Transfer initiation failed';
+      const transferDataStatus = String(
+        transferResponse.data?.data?.status ?? ''
+      ).toUpperCase();
+      const transferAccepted =
+        transferResponse.data?.status === 'success' &&
+        (transferDataStatus === 'SUCCESSFUL' || transferDataStatus === 'NEW');
+
+      if (!transferAccepted) {
+        const internalReason = extractInternalTransferFailureReason(
+          transferResponse.data?.message || transferResponse.data
+        );
+
+        logger.warn('Flutterwave transfer rejected', {
+          withdrawalId,
+          internalReason,
+        });
 
         await prisma.withdrawal.update({
           where: { id: withdrawalId },
-          data: { status: 'failed', failureReason },
+          data: { status: 'failed', failureReason: internalReason },
         });
 
-        await WithdrawalEmailService.sendFailureEmail(withdrawal.user.email, {
-          recipientName,
-          amount: amountToReceive,
-          bankName: withdrawal.bankAccount.bankName,
-          accountNumber: displayAccountNumber,
-          failureReason,
-          begTitle,
-          supportEmail: process.env.SUPPORT_EMAIL || 'support@plz.app',
-        });
+        WithdrawalAuditService.recordFailed(
+          {
+            withdrawalId,
+            userId: withdrawal.userId,
+            begId: withdrawal.begId,
+            amountToReceive,
+            status: 'failed',
+          },
+          {
+            internalReason,
+            source: 'flutterwave_sync',
+            flutterwavePayload: transferResponse.data,
+          }
+        );
 
-        throw new Error(failureReason);
+        await this.sendWithdrawalFailureEmail(withdrawal, internalReason);
+        throw new Error(WITHDRAWAL_TRANSFER_FAILURE_USER_MESSAGE);
       }
 
-      const updatedWithdrawal = await prisma.withdrawal.update({
-        where: { id: withdrawalId },
-        data: {
-          transferReference: reference,
-          status: 'completed',
-          autoProcessed,
-          processedAt: new Date(),
-        },
+      const isImmediateSuccess = transferDataStatus === 'SUCCESSFUL';
+      const endStatus = this.computeClosedBegStatus(raised, requested);
+
+      const updatedWithdrawal = await prisma.$transaction(async (tx) => {
+        const updated = await tx.withdrawal.update({
+          where: { id: withdrawalId },
+          data: {
+            transferReference: reference,
+            status: isImmediateSuccess ? 'completed' : 'processing',
+            autoProcessed,
+            ...(isImmediateSuccess ? { processedAt: new Date() } : {}),
+          },
+        });
+
+        await tx.beg.update({
+          where: { id: withdrawal.begId },
+          data: {
+            isWithdrawn: true,
+            withdrawnAt: new Date(),
+            status: endStatus,
+          },
+        });
+
+        return updated;
       });
 
-      await prisma.beg.update({
-        where: { id: withdrawal.begId },
-        data: { isWithdrawn: true, withdrawnAt: new Date(), status: 'funded' },
-      });
+      begClosedThisRun = true;
 
-      await WithdrawalEmailService.sendSuccessEmail(withdrawal.user.email, {
-        recipientName,
-        amount: parseFloat(withdrawal.amountRequested.toString()),
-        companyFee: parseFloat(withdrawal.companyFee.toString()),
-        vatFee: parseFloat(withdrawal.vatFee.toString()),
-        totalFees: parseFloat(withdrawal.totalFees.toString()),
-        amountToReceive,
-        bankName: withdrawal.bankAccount.bankName,
-        accountNumber: displayAccountNumber,
-        accountName: withdrawal.bankAccount.accountName,
-        transferReference: reference,
-        begTitle,
-        processedAt: new Date(),
-      });
+      if (isImmediateSuccess) {
+        try {
+          await this.sendWithdrawalSuccessEmail(withdrawal, reference);
+        } catch (emailError: unknown) {
+          logger.error('Withdrawal success email failed', {
+            withdrawalId,
+            error:
+              emailError instanceof Error
+                ? emailError.message
+                : String(emailError),
+          });
+        }
+      }
 
-      logger.info('Withdrawal processed via Flutterwave', {
+      logger.info('Withdrawal transfer initiated via Flutterwave', {
         withdrawalId,
         reference,
         amount: amountToReceive,
+        transferStatus: transferDataStatus,
+        begClosed: true,
       });
+
+      const auditCtx = {
+        withdrawalId,
+        userId: withdrawal.userId,
+        begId: withdrawal.begId,
+        transferReference: reference,
+        amountToReceive,
+        status: updatedWithdrawal.status,
+      };
+      WithdrawalAuditService.recordTransferInitiated(auditCtx, transferDataStatus);
+      if (isImmediateSuccess) {
+        WithdrawalAuditService.recordCompleted(auditCtx);
+      }
 
       return updatedWithdrawal;
     } catch (error: any) {
       logger.error('Withdrawal processing failed', {
         error: error.response?.data || error.message,
         withdrawalId,
+        begClosedThisRun,
       });
 
-      await prisma.withdrawal.update({
+      const current = await prisma.withdrawal.findUnique({
         where: { id: withdrawalId },
-        data: {
-          status: 'failed',
-          failureReason: error.response?.data?.message || error.message,
-        },
+        select: { status: true, transferReference: true, begId: true },
       });
 
-      throw error;
+      // Async transfer already accepted — webhook will finalize or reopen.
+      if (current?.status === 'processing' && current.transferReference) {
+        throw new Error(WITHDRAWAL_TRANSFER_FAILURE_USER_MESSAGE);
+      }
+
+      if (
+        current &&
+        !['completed', 'failed', 'on_hold'].includes(current.status)
+      ) {
+        const internalReason = extractInternalTransferFailureReason(error);
+        logger.warn('Withdrawal processing failed', {
+          withdrawalId,
+          internalReason,
+        });
+        await prisma.withdrawal.update({
+          where: { id: withdrawalId },
+          data: {
+            status: 'failed',
+            failureReason: internalReason,
+          },
+        });
+
+        const failedRow = await prisma.withdrawal.findUnique({
+          where: { id: withdrawalId },
+          select: {
+            userId: true,
+            begId: true,
+            transferReference: true,
+            amountToReceive: true,
+          },
+        });
+        if (failedRow) {
+          WithdrawalAuditService.recordFailed(
+            {
+              withdrawalId,
+              userId: failedRow.userId,
+              begId: failedRow.begId,
+              transferReference: failedRow.transferReference,
+              amountToReceive: parseFloat(failedRow.amountToReceive.toString()),
+              status: 'failed',
+            },
+            {
+              internalReason,
+              source: autoProcessed ? 'user_request' : 'admin_process',
+              flutterwavePayload: error.response?.data,
+            }
+          );
+        }
+      }
+
+      if (begClosedThisRun && current?.begId) {
+        await this.reopenBegAfterFailedWithdrawal(current.begId);
+      }
+
+      throw new Error(toUserWithdrawalRequestMessage(error));
     }
   }
 
@@ -570,7 +1038,10 @@ static isBegWithdrawable(beg: {
           amount_received: parseFloat(w.amountToReceive.toString()),
           status: w.status,
           transfer_reference: w.transferReference,
-          failure_reason: w.failureReason,
+          failure_reason:
+            w.failureReason && ['failed', 'rejected', 'on_hold'].includes(w.status)
+              ? toUserWithdrawalFailureDisplay(w.failureReason)
+              : null,
           auto_processed: w.autoProcessed,
           beg: {
             id: w.beg.id,
