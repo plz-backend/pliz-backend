@@ -12,7 +12,7 @@ export const restoreAccount = async (
   res: Response
 ): Promise<void> => {
   try {
-    const { userId } = req.params;
+    const userId = String(req.params.userId);
     const adminId = (req as any).user?.userId;
 
     const user = await prisma.user.findUnique({
