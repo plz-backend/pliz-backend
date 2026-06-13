@@ -18,6 +18,7 @@ import { createAdminUser } from '../controllers/Authentication/create_admin_user
 import { acceptAdminInvite } from '../controllers/Authentication/accept_admin_invite';
 import { googleLogin, appleLogin } from '../controllers/Authentication/oauth.controller';
 import { googleLoginValidation, appleLoginValidation } from '../middleware/auth/oauth.validation';
+import { deleteAccount } from '../controllers/Authentication/delete_account';
 
 
 // Middleware
@@ -35,7 +36,8 @@ import {
   resetPasswordValidation,
   resendVerificationValidation,
   refreshTokenValidation,
-  changePasswordValidation,  
+  changePasswordValidation,
+  deleteAccountValidation,
 } from '../middleware/auth/validation';
 
 // Rate Limiters
@@ -216,6 +218,20 @@ router.post(
   changePasswordValidation,  
   validateRequest,
   changePassword
+);
+
+/**
+ * @route   DELETE /api/auth/account
+ * @desc    Soft delete current user account (password required)
+ * @access  Private
+ */
+router.delete(
+  '/account',
+  authenticate,
+  authLimiter,
+  deleteAccountValidation,
+  validateRequest,
+  deleteAccount
 );
 
 // ============================================

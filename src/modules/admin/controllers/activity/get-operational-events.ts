@@ -28,6 +28,7 @@ export const getOperationalEvents = async (req: Request, res: Response): Promise
     const requestId = req.query.requestId as string | undefined;
     const source = req.query.source as string | undefined;
     const search = req.query.search as string | undefined;
+    const withdrawalId = req.query.withdrawalId as string | undefined;
 
     const where: {
       userId?: string;
@@ -36,6 +37,7 @@ export const getOperationalEvents = async (req: Request, res: Response): Promise
       requestId?: string;
       source?: string;
       message?: { contains: string; mode: 'insensitive' };
+      metadata?: { path: string[]; equals: string };
     } = {};
 
     if (userId) where.userId = userId;
@@ -44,6 +46,9 @@ export const getOperationalEvents = async (req: Request, res: Response): Promise
     if (requestId) where.requestId = requestId;
     if (source) where.source = source;
     if (search) where.message = { contains: search, mode: 'insensitive' };
+    if (withdrawalId) {
+      where.metadata = { path: ['withdrawalId'], equals: withdrawalId };
+    }
 
     const [events, total] = await Promise.all([
       prisma.operationalEvent.findMany({

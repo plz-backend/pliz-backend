@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { OAuthService } from '../../services/oauth.service';
 import { IApiResponse } from '../../types/user.interface';
 import logger from '../../../../config/logger';
+import { rejectInactiveAccount } from '../../utils/account-active.guard';
 
 const sendResponse = <T = any>(
   res: Response,
@@ -47,12 +48,7 @@ export const googleLogin = async (req: Request, res: Response): Promise<void> =>
     // Find or create user
     const { user, isNewUser } = await OAuthService.findOrCreateUser(profile);
 
-    // Check if suspended
-    if (user.isSuspended) {
-      sendResponse(res, 403, {
-        success: false,
-        message: 'Your account has been suspended. Contact support@plz.app',
-      });
+    if (rejectInactiveAccount(user, res, sendResponse)) {
       return;
     }
 
@@ -124,12 +120,7 @@ export const appleLogin = async (req: Request, res: Response): Promise<void> => 
     // Find or create user
     const { user, isNewUser } = await OAuthService.findOrCreateUser(profile);
 
-    // Check if suspended
-    if (user.isSuspended) {
-      sendResponse(res, 403, {
-        success: false,
-        message: 'Your account has been suspended. Contact support@plz.app',
-      });
+    if (rejectInactiveAccount(user, res, sendResponse)) {
       return;
     }
 

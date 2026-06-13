@@ -121,6 +121,23 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
+    // ============================================
+    // CHECK IF ACCOUNT IS DELETED
+    // Same response as invalid credentials (avoid account enumeration).
+    // ============================================
+    if (user.isDeleted) {
+      logger.warn('Login failed: Account deleted', {
+        userId: user.id,
+        email,
+      });
+      await CacheService.recordLoginFailure(email, ip);
+      sendResponse(res, 401, {
+        success: false,
+        message: 'Invalid email or password',
+      });
+      return;
+    }
+
     if (
       (user.role === 'admin' || user.role === 'superadmin') &&
       user.isTeamDisabled

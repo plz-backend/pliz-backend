@@ -15,23 +15,25 @@ export const checkNotSuspended = async (
     const userId = req.user?.userId;
 
     if (!userId) {
-      const response: IApiResponse = {
-        success: false,
-        message: 'User not authenticated',
-      };
-      res.status(401).json(response);
+      res.status(401).json({ success: false, message: 'User not authenticated' });
       return;
     }
 
     const user = await UserService.findById(userId);
 
     if (!user) {
-      logger.warn('User not found in suspension check', { userId });
-      const response: IApiResponse = {
+      res.status(404).json({ success: false, message: 'User not found' });
+      return;
+    }
+
+    // ── BLOCK DELETED ACCOUNTS ─────────────
+    if (user.isDeleted) {
+      logger.warn('Deleted user attempted action', { userId, path: req.path });
+      res.status(403).json({
         success: false,
-        message: 'User not found',
-      };
-      res.status(404).json(response);
+        message: 'This account has been deleted. Contact support@plz.ng if this is a mistake.',
+        code: 'ACCOUNT_DELETED',
+      });
       return;
     }
 
@@ -41,7 +43,7 @@ export const checkNotSuspended = async (
         email: user.email,
         path: req.path,
       });
-      const response: IApiResponse = {
+      res.status(403).json({
         success: false,
         message: 'Your account has been suspended. You cannot perform this action.',
         errors: [
@@ -50,8 +52,7 @@ export const checkNotSuspended = async (
             message: 'Account suspended. Please contact support for assistance.',
           },
         ],
-      };
-      res.status(403).json(response);
+      });
       return;
     }
 
@@ -61,11 +62,7 @@ export const checkNotSuspended = async (
       error: error.message,
       userId: req.user?.userId,
     });
-    const response: IApiResponse = {
-      success: false,
-      message: 'Failed to verify account status',
-    };
-    res.status(500).json(response);
+    res.status(500).json({ success: false, message: 'Failed to verify account status' });
   }
 };
 
@@ -81,23 +78,25 @@ export const checkNotUnderInvestigation = async (
     const userId = req.user?.userId;
 
     if (!userId) {
-      const response: IApiResponse = {
-        success: false,
-        message: 'User not authenticated',
-      };
-      res.status(401).json(response);
+      res.status(401).json({ success: false, message: 'User not authenticated' });
       return;
     }
 
     const user = await UserService.findById(userId);
 
     if (!user) {
-      logger.warn('User not found in investigation check', { userId });
-      const response: IApiResponse = {
+      res.status(404).json({ success: false, message: 'User not found' });
+      return;
+    }
+
+    // ── BLOCK DELETED ACCOUNTS ─────────────
+    if (user.isDeleted) {
+      logger.warn('Deleted user attempted action', { userId, path: req.path });
+      res.status(403).json({
         success: false,
-        message: 'User not found',
-      };
-      res.status(404).json(response);
+        message: 'This account has been deleted. Contact support@plz.ng if this is a mistake.',
+        code: 'ACCOUNT_DELETED',
+      });
       return;
     }
 
@@ -107,7 +106,7 @@ export const checkNotUnderInvestigation = async (
         email: user.email,
         path: req.path,
       });
-      const response: IApiResponse = {
+      res.status(403).json({
         success: false,
         message: 'Your account is under investigation. You cannot perform this action at this time.',
         errors: [
@@ -116,8 +115,7 @@ export const checkNotUnderInvestigation = async (
             message: 'Account under investigation. Please contact support.',
           },
         ],
-      };
-      res.status(403).json(response);
+      });
       return;
     }
 
@@ -127,16 +125,12 @@ export const checkNotUnderInvestigation = async (
       error: error.message,
       userId: req.user?.userId,
     });
-    const response: IApiResponse = {
-      success: false,
-      message: 'Failed to verify account status',
-    };
-    res.status(500).json(response);
+    res.status(500).json({ success: false, message: 'Failed to verify account status' });
   }
 };
 
 /**
- * Combined middleware - checks both suspension and investigation
+ * Combined middleware — checks deletion, suspension and investigation
  */
 export const checkAccountStatus = async (
   req: Request,
@@ -147,33 +141,36 @@ export const checkAccountStatus = async (
     const userId = req.user?.userId;
 
     if (!userId) {
-      const response: IApiResponse = {
-        success: false,
-        message: 'User not authenticated',
-      };
-      res.status(401).json(response);
+      res.status(401).json({ success: false, message: 'User not authenticated' });
       return;
     }
 
     const user = await UserService.findById(userId);
 
     if (!user) {
-      logger.warn('User not found in account status check', { userId });
-      const response: IApiResponse = {
-        success: false,
-        message: 'User not found',
-      };
-      res.status(404).json(response);
+      res.status(404).json({ success: false, message: 'User not found' });
       return;
     }
 
+    // ── BLOCK DELETED ACCOUNTS ─────────────
+    if (user.isDeleted) {
+      logger.warn('Deleted user attempted action', { userId, path: req.path });
+      res.status(403).json({
+        success: false,
+        message: 'This account has been deleted. Contact support@plz.ng if this is a mistake.',
+        code: 'ACCOUNT_DELETED',
+      });
+      return;
+    }
+
+    // ── BLOCK SUSPENDED ACCOUNTS ───────────
     if (user.isSuspended) {
       logger.warn('Suspended user attempted restricted action', {
         userId,
         email: user.email,
         path: req.path,
       });
-      const response: IApiResponse = {
+      res.status(403).json({
         success: false,
         message: 'Your account has been suspended. You cannot perform this action.',
         errors: [
@@ -182,18 +179,18 @@ export const checkAccountStatus = async (
             message: 'Account suspended. Please contact support for assistance.',
           },
         ],
-      };
-      res.status(403).json(response);
+      });
       return;
     }
 
+    // ── BLOCK ACCOUNTS UNDER INVESTIGATION ─
     if (user.isUnderInvestigation) {
       logger.warn('User under investigation attempted restricted action', {
         userId,
         email: user.email,
         path: req.path,
       });
-      const response: IApiResponse = {
+      res.status(403).json({
         success: false,
         message: 'Your account is under investigation. You cannot perform this action at this time.',
         errors: [
@@ -202,8 +199,7 @@ export const checkAccountStatus = async (
             message: 'Account under investigation. Please contact support.',
           },
         ],
-      };
-      res.status(403).json(response);
+      });
       return;
     }
 
@@ -213,10 +209,6 @@ export const checkAccountStatus = async (
       error: error.message,
       userId: req.user?.userId,
     });
-    const response: IApiResponse = {
-      success: false,
-      message: 'Failed to verify account status',
-    };
-    res.status(500).json(response);
+    res.status(500).json({ success: false, message: 'Failed to verify account status' });
   }
 };

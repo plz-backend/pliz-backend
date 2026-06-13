@@ -70,6 +70,7 @@ export interface IUserResponse {
   isProfileComplete: boolean;
   isSuspended: boolean;
   isUnderInvestigation: boolean;
+  authProvider?: string;
   mustChangePassword?: boolean;
   adminStaffRole?: string | null;
   permissions?: string[];
@@ -157,6 +158,7 @@ export interface IRefreshTokenRequest {
 export interface IApiResponse<T = any> {
   success: boolean;
   message?: string;
+  code?: string;
   data?: T;
   errors?: Array<{
     field: string;

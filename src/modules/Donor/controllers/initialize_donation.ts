@@ -83,6 +83,7 @@ export const initializeDonation = async (
         userId: true,
         status: true,
         approved: true,
+        isWithdrawn: true,
         expiresAt: true,
         amountRequested: true,
         amountRaised: true,
@@ -91,6 +92,13 @@ export const initializeDonation = async (
 
     if (!beg) {
       sendResponse(res, 404, { success: false, message: 'Beg not found' });
+      return;
+    }
+    if (beg.isWithdrawn) {
+      sendResponse(res, 400, {
+        success: false,
+        message: 'This request is closed — funds have been withdrawn.',
+      });
       return;
     }
     if (beg.status !== 'active' || !beg.approved) {

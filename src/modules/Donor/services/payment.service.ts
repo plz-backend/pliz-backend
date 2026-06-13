@@ -27,7 +27,9 @@ export type PaymentVerificationResult = {
   error?: string;
 };
 
-function mapFlutterwaveTransaction(transaction: Record<string, unknown>): VerifiedTransaction {
+function mapFlutterwaveTransaction(
+  transaction: Record<string, unknown>
+): VerifiedTransaction {
   const customer = transaction.customer as { email?: string } | undefined;
   return {
     amount: Number(transaction.amount),
@@ -42,6 +44,11 @@ function mapFlutterwaveTransaction(transaction: Record<string, unknown>): Verifi
 }
 
 export class PaymentService {
+
+  // ============================================
+  // INITIALIZE PAYMENT
+  // Full amount settles to Plz main account; fees at withdrawal.
+  // ============================================
   static async initializePayment(data: {
     email: string;
     amount: number;
@@ -61,33 +68,39 @@ export class PaymentService {
         data.redirectUrl?.trim() ||
         `${process.env.FRONTEND_URL}/payment/callback`;
 
+      // ── BUILD PAYMENT PAYLOAD ──────────────
+      const payload: Record<string, unknown> = {
+        tx_ref: data.reference,
+        amount: data.amount,
+        currency: 'NGN',
+        redirect_url: redirectUrl,
+        payment_options: 'card,banktransfer,ussd',
+        customer: {
+          email: data.email,
+        },
+        customizations: {
+          title: 'Plz',
+          description: 'Support a request on Plz',
+          logo: `${process.env.FRONTEND_URL}/logo.png`,
+        },
+        meta: {
+          beg_id: data.begId,
+          donor_id: data.donorId || 'guest',
+          is_anonymous: data.isAnonymous,
+          source: 'plz_app',
+        },
+      };
+
       const response = await axios.post(
         `${FLW_BASE_URL}/payments`,
-        {
-          tx_ref: data.reference,
-          amount: data.amount,
-          currency: 'NGN',
-          redirect_url: redirectUrl,
-          payment_options: 'card,banktransfer,ussd',
-          customer: {
-            email: data.email,
-          },
-          customizations: {
-            title: 'Plz',
-            description: 'Support a request on Plz',
-            logo: `${process.env.FRONTEND_URL}/logo.png`,
-          },
-          meta: {
-            beg_id: data.begId,
-            donor_id: data.donorId || 'guest',
-            is_anonymous: data.isAnonymous,
-            source: 'plz_app',
-          },
-        },
+        payload,
         { headers: getHeaders(), timeout: 30000 }
       );
 
-      if (response.data?.status !== 'success' || !response.data?.data?.link) {
+      if (
+        response.data?.status !== 'success' ||
+        !response.data?.data?.link
+      ) {
         return {
           success: false,
           reference: data.reference,
@@ -107,7 +120,10 @@ export class PaymentService {
         reference: data.reference,
       };
     } catch (error: unknown) {
-      const err = error as { response?: { data?: unknown }; message?: string };
+      const err = error as {
+        response?: { data?: unknown };
+        message?: string;
+      };
       logger.error('Flutterwave initialization failed', {
         error: err.response?.data || err.message,
         reference: data.reference,
@@ -120,18 +136,27 @@ export class PaymentService {
     }
   }
 
-  static async verifyTransaction(transactionId: string): Promise<PaymentVerificationResult> {
+  // ============================================
+  // VERIFY BY TRANSACTION ID
+  // ============================================
+  static async verifyTransaction(
+    transactionId: string
+  ): Promise<PaymentVerificationResult> {
     try {
       const response = await axios.get(
         `${FLW_BASE_URL}/transactions/${transactionId}/verify`,
         { headers: getHeaders(), timeout: 30000 }
       );
 
-      if (response.data?.status !== 'success' || !response.data?.data) {
+      if (
+        response.data?.status !== 'success' ||
+        !response.data?.data
+      ) {
         return {
           success: false,
           verified: false,
-          error: response.data?.message || 'Transaction verification failed',
+          error:
+            response.data?.message || 'Transaction verification failed',
         };
       }
 
@@ -154,7 +179,10 @@ export class PaymentService {
         data: mapFlutterwaveTransaction(transaction),
       };
     } catch (error: unknown) {
-      const err = error as { response?: { data?: { message?: string } }; message?: string };
+      const err = error as {
+        response?: { data?: { message?: string } };
+        message?: string;
+      };
       logger.error('Flutterwave verification by id failed', {
         error: err.response?.data || err.message,
         transactionId,
@@ -162,13 +190,19 @@ export class PaymentService {
       return {
         success: false,
         verified: false,
-        error: err.response?.data?.message || 'Failed to verify transaction',
+        error:
+          err.response?.data?.message || 'Failed to verify transaction',
       };
     }
   }
 
-  /** Preferred path when the app only has tx_ref (PLZ-...) after hosted checkout. */
-  static async verifyTransactionByRef(txRef: string): Promise<PaymentVerificationResult> {
+  // ============================================
+  // VERIFY BY TX_REF
+  // Preferred path after hosted checkout
+  // ============================================
+  static async verifyTransactionByRef(
+    txRef: string
+  ): Promise<PaymentVerificationResult> {
     try {
       const response = await axios.get(
         `${FLW_BASE_URL}/transactions/verify_by_reference`,
@@ -179,8 +213,12 @@ export class PaymentService {
         }
       );
 
-      if (response.data?.status !== 'success' || !response.data?.data) {
-        const message = response.data?.message || 'Transaction not found';
+      if (
+        response.data?.status !== 'success' ||
+        !response.data?.data
+      ) {
+        const message =
+          response.data?.message || 'Transaction not found';
         const notFound =
           typeof message === 'string' &&
           message.toLowerCase().includes('no transaction was found');
@@ -210,7 +248,10 @@ export class PaymentService {
         data: mapFlutterwaveTransaction(transaction),
       };
     } catch (error: unknown) {
-      const err = error as { response?: { data?: { message?: string } }; message?: string };
+      const err = error as {
+        response?: { data?: { message?: string } };
+        message?: string;
+      };
       logger.error('Flutterwave verify_by_reference failed', {
         error: err.response?.data || err.message,
         txRef,
@@ -218,11 +259,15 @@ export class PaymentService {
       return {
         success: false,
         verified: false,
-        error: err.response?.data?.message || 'Failed to verify transaction',
+        error:
+          err.response?.data?.message || 'Failed to verify transaction',
       };
     }
   }
 
+  // ============================================
+  // VERIFY PAYMENT — tries both methods
+  // ============================================
   static async verifyPayment(input: {
     transactionId?: string;
     txRef?: string;
@@ -231,23 +276,17 @@ export class PaymentService {
 
     if (transactionId && txRef) {
       const byId = await this.verifyTransaction(transactionId);
-      if (byId.success) {
-        return byId;
-      }
-      logger.warn('Flutterwave verify by id failed; falling back to tx_ref', {
-        transactionId,
-        txRef,
-        error: byId.error,
-      });
+      if (byId.success) return byId;
+      logger.warn(
+        'Flutterwave verify by id failed; falling back to tx_ref',
+        { transactionId, txRef, error: byId.error }
+      );
       return this.verifyTransactionByRef(txRef);
     }
 
-    if (transactionId) {
-      return this.verifyTransaction(transactionId);
-    }
-    if (txRef) {
-      return this.verifyTransactionByRef(txRef);
-    }
+    if (transactionId) return this.verifyTransaction(transactionId);
+    if (txRef) return this.verifyTransactionByRef(txRef);
+
     return {
       success: false,
       verified: false,
@@ -255,7 +294,10 @@ export class PaymentService {
     };
   }
 
-  /** @deprecated Use verifyTransactionByRef */
+  // ============================================
+  // GET TRANSACTION BY REF
+  // @deprecated — use verifyTransactionByRef
+  // ============================================
   static async getTransactionByRef(txRef: string): Promise<{
     success: boolean;
     data?: Record<string, unknown>;
@@ -263,7 +305,10 @@ export class PaymentService {
   }> {
     const result = await this.verifyTransactionByRef(txRef);
     if (!result.success || !result.data) {
-      return { success: false, error: result.error || 'Transaction not found' };
+      return {
+        success: false,
+        error: result.error || 'Transaction not found',
+      };
     }
     return {
       success: true,
@@ -276,6 +321,9 @@ export class PaymentService {
     };
   }
 
+  // ============================================
+  // VERIFY WEBHOOK SIGNATURE
+  // ============================================
   static verifyWebhookSignature(signature: string): boolean {
     return signature === process.env.FLW_WEBHOOK_HASH;
   }

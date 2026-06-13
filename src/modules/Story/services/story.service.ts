@@ -184,13 +184,23 @@ export class StoryService {
 
       const [stories, total] = await Promise.all([
         prisma.story.findMany({
-          where: { isApproved: true, isVisible: true },
+          where: {
+            isApproved: true,
+            isVisible: true,
+            user: { isDeleted: false },
+          },
           skip,
           take: limit,
           orderBy: { approvedAt: 'desc' },
           include: this.includeUserProfile(),
         }),
-        prisma.story.count({ where: { isApproved: true, isVisible: true } }),
+        prisma.story.count({
+          where: {
+            isApproved: true,
+            isVisible: true,
+            user: { isDeleted: false },
+          },
+        }),
       ]);
 
       return {

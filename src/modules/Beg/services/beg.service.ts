@@ -491,6 +491,7 @@ export class BegService {
         status: 'active',
         approved: true,
         expiresAt: { gt: new Date() },
+        user: { isDeleted: false },
       };
       if (categoryId) where.categoryId = categoryId;
 
@@ -790,6 +791,8 @@ export class BegService {
       rejectionReason: beg.rejectionReason,
       expiresAt: beg.expiresAt,
       createdAt: beg.createdAt,
+      isWithdrawn: beg.isWithdrawn,
+      withdrawnAt: beg.withdrawnAt,
       timeRemaining,
     };
   }

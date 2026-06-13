@@ -24,6 +24,8 @@ export const getUsers = async (req: Request, res: Response): Promise<void> => {
                      req.query.suspended === 'false' ? false : undefined;
     const underInvestigation = req.query.underInvestigation === 'true' ? true :
                                req.query.underInvestigation === 'false' ? false : undefined;
+    const deleted = req.query.deleted === 'true' ? true :
+                    req.query.deleted === 'false' ? false : undefined;
     const role = req.query.role as string;
     const audience = (req.query.audience as string) || 'customers';
 
@@ -32,6 +34,7 @@ export const getUsers = async (req: Request, res: Response): Promise<void> => {
       limit,
       suspended,
       underInvestigation,
+      deleted,
       role,
       audience: audience as 'customers' | 'team' | 'all',
     });

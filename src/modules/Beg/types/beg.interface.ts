@@ -2,7 +2,7 @@
  * Beg Types & Interfaces
  */
 
-export type BegStatus = 'active' | 'funded' | 'expired' | 'cancelled' | 'flagged' | 'rejected';
+export type BegStatus = 'active' | 'funded' | 'expired' | 'withdrawn' | 'cancelled' | 'flagged' | 'rejected';
 export type TrustTier = 1 | 2 | 3 | 4;
 export type ExpiryHours = 24 | 72 | 168;
 
@@ -94,6 +94,8 @@ export interface IBegResponse {
   rejectionReason: string | null;
   expiresAt: Date;
   createdAt: Date;
+  isWithdrawn?: boolean;
+  withdrawnAt?: Date | null;
   timeRemaining?: string;
   availableExtensions?: {
     hours: ExpiryHours;

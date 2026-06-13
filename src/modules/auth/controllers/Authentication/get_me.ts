@@ -157,6 +157,7 @@ export const getMe = async (
       isProfileComplete: user.isProfileComplete,
       isSuspended: user.isSuspended,
       isUnderInvestigation: user.isUnderInvestigation,
+      authProvider: user.authProvider,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
       ...buildStaffAuthFields(user),

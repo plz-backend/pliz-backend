@@ -3,6 +3,7 @@ import { WithdrawalService } from '../../../Withdrawal/services/withdrawal.servi
 import { AdminService } from '../../services/admin.service';
 import { IApiResponse } from '../../../auth/types/user.interface';
 import logger from '../../../../config/logger';
+import prisma from '../../../../config/database';
 
 const sendResponse = <T = any>(
   res: Response,
@@ -68,14 +69,37 @@ export const processWithdrawal = async (
       },
     });
   } catch (error: any) {
+    const id = String(req.params.id);
+    const failed = await prisma.withdrawal.findUnique({
+      where: { id },
+      select: {
+        status: true,
+        failureReason: true,
+        transferReference: true,
+      },
+    });
+
     logger.error('Process withdrawal error', {
       error: error.message,
-      withdrawalId: req.params.id,
+      withdrawalId: id,
+      internalFailureReason: failed?.failureReason,
+      status: failed?.status,
+      transferReference: failed?.transferReference,
     });
 
     sendResponse(res, 500, {
       success: false,
-      message: error.message || 'Failed to process withdrawal',
+      message:
+        failed?.failureReason ||
+        error.message ||
+        'Failed to process withdrawal',
+      data: failed
+        ? {
+            status: failed.status,
+            failure_reason: failed.failureReason,
+            transfer_reference: failed.transferReference,
+          }
+        : undefined,
     });
   }
 };

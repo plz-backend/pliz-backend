@@ -1,7 +1,8 @@
 import { Request, Response, Router } from 'express';
 import prisma from '../config/database';
-import { DonationService } from '../modules/Donor/services/donation.service';
+import { DonationService, BegClosedForDonationError } from '../modules/Donor/services/donation.service';
 import { PaymentService } from '../modules/Donor/services/payment.service';
+import { WithdrawalService } from '../modules/Withdrawal/services/withdrawal.service';
 import logger from '../config/logger';
 
 function parseMeta(raw: unknown): Record<string, unknown> {
@@ -122,6 +123,14 @@ async function handleFlutterwaveWebhook(req: Request, res: Response) {
         });
         logger.info('Webhook: donation processed', { txRef: tx_ref });
       } catch (error: unknown) {
+        if (error instanceof BegClosedForDonationError) {
+          logger.error('Webhook: payment received after beg closed — refund may be required', {
+            txRef: tx_ref,
+            begId,
+            error: error.message,
+          });
+          return res.status(200).json({ status: 'ignored', reason: 'beg_closed' });
+        }
         const message = error instanceof Error ? error.message : 'Processing failed';
         logger.error('Webhook: donation processing failed', {
           txRef: tx_ref,
@@ -139,33 +148,24 @@ async function handleFlutterwaveWebhook(req: Request, res: Response) {
         return res.status(200).json({ status: 'ignored' });
       }
 
-      const withdrawal = await prisma.withdrawal.findFirst({
-        where: { transferReference: reference },
-      });
+      const failureReason =
+        (data?.complete_message as string | undefined) ||
+        (data?.reason as string | undefined) ||
+        'Transfer failed';
 
-      if (!withdrawal) {
-        logger.warn('Webhook: withdrawal not found for transfer', { reference });
-        return res.status(200).json({ status: 'ignored' });
-      }
-
-      if (transferStatus === 'FAILED' || event === 'transfer.failed') {
-        await prisma.withdrawal.update({
-          where: { id: withdrawal.id },
-          data: {
-            status: 'failed',
-            failureReason: data?.complete_message || data?.reason || 'Transfer failed',
-          },
-        });
-        logger.warn('Webhook: withdrawal transfer failed', { reference, withdrawalId: withdrawal.id });
-      } else if (transferStatus === 'SUCCESSFUL' && withdrawal.status !== 'completed') {
-        await prisma.withdrawal.update({
-          where: { id: withdrawal.id },
-          data: {
-            status: 'completed',
-            processedAt: new Date(),
-          },
-        });
-        logger.info('Webhook: withdrawal marked completed', { reference, withdrawalId: withdrawal.id });
+      try {
+        if (transferStatus === 'FAILED' || event === 'transfer.failed') {
+          await WithdrawalService.handleTransferFailed(reference, failureReason, data);
+        } else if (
+          transferStatus === 'SUCCESSFUL' ||
+          event === 'transfer.completed'
+        ) {
+          await WithdrawalService.handleTransferSuccessful(reference);
+        }
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Transfer webhook failed';
+        logger.error('Webhook: transfer handling failed', { reference, error: message });
+        return res.status(500).json({ status: 'error' });
       }
     }
 
