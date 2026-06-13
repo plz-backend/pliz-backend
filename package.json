@@ -1,6 +1,6 @@
 {
   "name": "plz",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Pliz Backend Application",
   "main": "dist/src/server.js",
   "scripts": {
