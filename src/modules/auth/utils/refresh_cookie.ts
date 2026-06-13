@@ -57,41 +57,62 @@ function cookieSecureFlag(): boolean {
 }
 
 /**
- * Production + cross-origin (e.g. Vercel → Cloud Run) needs SameSite=None; Secure.
- * Local HTTP dev uses lax + insecure cookies so browsers can store them.
+ * Shared parent domain (e.g. `.plz.ng`) so app.plz.ng JS can read `pliz_csrf` while
+ * `pliz_refresh` stays httpOnly. Omit on localhost — port-only origins share `localhost`.
+ */
+export function cookieDomain(): string | undefined {
+  const raw = process.env.COOKIE_DOMAIN?.trim();
+  if (!raw) return undefined;
+  return raw.startsWith('.') ? raw : `.${raw}`;
+}
+
+type CookieSameSite = 'lax' | 'none' | 'strict';
+
+function sharedCookieOptions(): {
+  secure: boolean;
+  sameSite: CookieSameSite;
+  path: string;
+  domain?: string;
+} {
+  const secure = cookieSecureFlag();
+  const domain = cookieDomain();
+  return {
+    secure,
+    sameSite: secure ? 'none' : 'lax',
+    path: '/',
+    ...(domain ? { domain } : {}),
+  };
+}
+
+/**
+ * Production + cross-origin (app.plz.ng → api.plz.ng) needs SameSite=None; Secure and
+ * COOKIE_DOMAIN=.plz.ng so the web app can read the CSRF cookie for refresh requests.
+ * Local HTTP dev uses lax + insecure cookies without domain.
  */
 export function setRefreshTokenCookie(res: Response, refreshToken: string): void {
-  const secure = cookieSecureFlag();
+  const base = sharedCookieOptions();
   const csrfToken = crypto.randomBytes(32).toString('hex');
   res.cookie(REFRESH_TOKEN_COOKIE_NAME, refreshToken, {
+    ...base,
     httpOnly: true,
-    secure,
-    sameSite: secure ? 'none' : 'lax',
     maxAge: MAX_AGE_MS,
-    path: '/',
   });
   res.cookie(CSRF_COOKIE_NAME, csrfToken, {
+    ...base,
     httpOnly: false,
-    secure,
-    sameSite: secure ? 'none' : 'lax',
     maxAge: MAX_AGE_MS,
-    path: '/',
   });
 }
 
 export function clearRefreshTokenCookie(res: Response): void {
-  const secure = cookieSecureFlag();
+  const base = sharedCookieOptions();
   res.clearCookie(REFRESH_TOKEN_COOKIE_NAME, {
+    ...base,
     httpOnly: true,
-    secure,
-    sameSite: secure ? 'none' : 'lax',
-    path: '/',
   });
   res.clearCookie(CSRF_COOKIE_NAME, {
+    ...base,
     httpOnly: false,
-    secure,
-    sameSite: secure ? 'none' : 'lax',
-    path: '/',
   });
 }
 

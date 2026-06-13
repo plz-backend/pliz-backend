@@ -17,6 +17,7 @@ const baseSchema = z.object({
   FRONTEND_URL: z.string().url().optional(),
   ALLOWED_ORIGINS: z.string().optional(),
   COOKIE_SECURE: z.enum(['true', 'false']).optional(),
+  COOKIE_DOMAIN: z.string().optional(),
   SCHEDULER_ENABLED: z.enum(['true', 'false']).optional(),
   SCHEDULER_SECRET: z.string().optional(),
   SUPABASE_URL: z.string().url().optional(),
@@ -52,6 +53,14 @@ const productionSchema = baseSchema.superRefine((data, ctx) => {
       code: 'custom',
       message: 'COOKIE_SECURE must be true in production',
       path: ['COOKIE_SECURE'],
+    });
+  }
+  if (!data.COOKIE_DOMAIN?.trim()) {
+    ctx.addIssue({
+      code: 'custom',
+      message:
+        'COOKIE_DOMAIN is required in production (e.g. .plz.ng) for cross-subdomain web auth cookies',
+      path: ['COOKIE_DOMAIN'],
     });
   }
   if (!data.REFRESH_TOKEN_PEPPER || data.REFRESH_TOKEN_PEPPER.length < 32) {
